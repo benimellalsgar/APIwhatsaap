@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp AI Agent - Multi User</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #25D366;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+
+        .status-inactive {
+            background: #fee;
+            color: #c33;
+        }
+
+        .status-active {
+            background: #efe;
+            color: #3c3;
+        }
+
+        .status-ready {
+            background: #e7f7ff;
+            color: #0066cc;
+        }
+
+        .qr-container {
+            text-align: center;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            margin: 20px 0;
+        }
+
+        #qrCode {
+            max-width: 300px;
+            width: 100%;
+            height: auto;
+            margin: 20px auto;
+            display: block;
+        }
+
+        .instructions {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+
+        .instructions h3 {
+            color: #856404;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .instructions ol {
+            margin-left: 20px;
+            color: #856404;
+        }
+
+        .instructions li {
+            margin: 5px 0;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.1em;
+            font-weight: bold;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn-start {
+            background: #25D366;
+            color: white;
+        }
+
+        .btn-start:hover {
+            background: #1fb855;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(37, 211, 102, 0.4);
+        }
+
+        .btn-stop {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-stop:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(220, 53, 69, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .message-log {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .message-log h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .message-item {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 8px;
+            font-size: 0.9em;
+        }
+
+        .message-received {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+        }
+
+        .message-sent {
+            background: #f1f8e9;
+            border-left: 4px solid #8bc34a;
+        }
+
+        .message-time {
+            font-size: 0.75em;
+            color: #999;
+            margin-top: 5px;
+        }
+
+        .loading {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #25D366;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .alert {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 WhatsApp AI Agent</h1>
+        <p class="subtitle">Multi-User Support - Each user gets their own bot</p>
+
+        <div id="userIdInput">
+            <div class="instructions">
+                <h3>👤 Enter Your Name/ID</h3>
+                <p>Choose a unique name to create your personal bot session</p>
+            </div>
+            <input type="text" id="userId" placeholder="e.g., john, mary, user123" style="
+                width: 100%;
+                padding: 15px;
+                font-size: 1.1em;
+                border: 2px solid #ddd;
+                border-radius: 10px;
+                margin: 10px 0;
+            ">
+            <button id="enterBtn" class="btn-start">Enter & Start Bot</button>
+        </div>
+
+        <div id="botArea" class="hidden">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h3 style="color: #25D366; margin: 0;">Welcome, <span id="displayUserId"></span>! 👋</h3>
+                <span id="statusBadge" class="status-badge status-inactive">● Inactive</span>
+            </div>
+
+            <div id="alertContainer"></div>
+
+        <div id="qrArea" class="qr-container hidden">
+            <h3>Scan QR Code</h3>
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Generating QR Code...</p>
+            </div>
+            <img id="qrCode" class="hidden" alt="QR Code">
+            
+            <div class="instructions">
+                <h3>📱 How to Scan:</h3>
+                <ol>
+                    <li>Open WhatsApp on your phone</li>
+                    <li>Go to Settings → Linked Devices</li>
+                    <li>Tap "Link a Device"</li>
+                    <li>Scan this QR code</li>
+                </ol>
+            </div>
+        </div>
+
+        <div id="readyArea" class="hidden">
+            <div class="alert alert-success">
+                ✅ Bot is connected and ready! You can now receive AI-powered responses on WhatsApp.
+            </div>
+        </div>
+
+        <div class="message-log hidden" id="messageLog">
+            <h3>📱 Message Activity</h3>
+            <div id="messageList"></div>
+        </div>
+
+            <button id="startBtn" class="btn-start">Start My Bot</button>
+            <button id="stopBtn" class="btn-stop hidden">Stop My Bot</button>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        let currentUserId = null;
+        const socket = io();
+        const userIdInput = document.getElementById('userIdInput');
+        const botArea = document.getElementById('botArea');
+        const enterBtn = document.getElementById('enterBtn');
+        const userIdField = document.getElementById('userId');
+        const displayUserId = document.getElementById('displayUserId');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusBadge = document.getElementById('statusBadge');
+        const qrArea = document.getElementById('qrArea');
+        const qrCode = document.getElementById('qrCode');
+        const readyArea = document.getElementById('readyArea');
+        const alertContainer = document.getElementById('alertContainer');
+        const messageLog = document.getElementById('messageLog');
+        const messageList = document.getElementById('messageList');
+
+        // Enter button handler
+        enterBtn.addEventListener('click', () => {
+            const userId = userIdField.value.trim();
+            if (!userId) {
+                alert('Please enter your name/ID');
+                return;
+            }
+            
+            currentUserId = userId;
+            displayUserId.textContent = userId;
+            userIdInput.classList.add('hidden');
+            botArea.classList.remove('hidden');
+            
+            // Join socket room
+            socket.emit('join', userId);
+            
+            // Check if user already has session
+            fetch(`/api/status/${userId}`)
+                .then(res => res.json())
+                .then(data => updateUI(data));
+        });
+
+        // Socket events
+        socket.on('status', (data) => updateUI(data));
+
+        socket.on('sessionStarted', () => {
+            showAlert('Session started! Waiting for QR code...', 'info');
+            updateStatus('active');
+        });
+
+        socket.on('qr', (data) => {
+            qrArea.classList.remove('hidden');
+            qrArea.querySelector('.loading').classList.add('hidden');
+            qrCode.src = data.qrCode;
+            qrCode.classList.remove('hidden');
+        });
+
+        socket.on('authenticated', () => {
+            showAlert('Authentication successful!', 'success');
+        });
+
+        socket.on('ready', (data) => {
+            qrArea.classList.add('hidden');
+            readyArea.classList.remove('hidden');
+            messageLog.classList.remove('hidden');
+            updateStatus('ready');
+            showAlert(data.message, 'success');
+        });
+
+        socket.on('messageReceived', (data) => {
+            addMessage('received', data.from, data.message, data.timestamp);
+        });
+
+        socket.on('messageSent', (data) => {
+            addMessage('sent', data.to, data.message, data.timestamp);
+        });
+
+        socket.on('disconnected', (data) => {
+            showAlert('Disconnected: ' + data.reason, 'error');
+            resetUI();
+        });
+
+        socket.on('authFailure', (data) => {
+            showAlert('Authentication failed: ' + data.error, 'error');
+            resetUI();
+        });
+
+        socket.on('sessionStopped', () => {
+            showAlert('Session stopped successfully', 'info');
+            resetUI();
+        });
+
+        socket.on('error', (data) => {
+            showAlert('Error: ' + data.message, 'error');
+        });
+
+        // Button handlers
+        startBtn.addEventListener('click', async () => {
+            if (!currentUserId) return;
+            
+            try {
+                const res = await fetch('/api/start', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: currentUserId })
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    startBtn.classList.add('hidden');
+                    stopBtn.classList.remove('hidden');
+                    showAlert('Starting your bot...', 'info');
+                } else {
+                    showAlert(data.error, 'error');
+                }
+            } catch (error) {
+                showAlert('Failed to start session', 'error');
+            }
+        });
+
+        stopBtn.addEventListener('click', async () => {
+            if (!currentUserId) return;
+            
+            if (confirm('Are you sure you want to stop your bot?')) {
+                try {
+                    await fetch('/api/stop', { 
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: currentUserId })
+                    });
+                } catch (error) {
+                    showAlert('Failed to stop session', 'error');
+                }
+            }
+        });
+
+        function updateUI(data) {
+            if (data.exists) {
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+                
+                if (data.isReady) {
+                    updateStatus('ready');
+                    readyArea.classList.remove('hidden');
+                    messageLog.classList.remove('hidden');
+                    qrArea.classList.add('hidden');
+                } else {
+                    updateStatus('active');
+                }
+            } else {
+                startBtn.classList.remove('hidden');
+                stopBtn.classList.add('hidden');
+                updateStatus('inactive');
+            }
+        }
+
+        function updateStatus(status) {
+            statusBadge.className = 'status-badge';
+            
+            if (status === 'inactive') {
+                statusBadge.classList.add('status-inactive');
+                statusBadge.textContent = '● Inactive';
+            } else if (status === 'active') {
+                statusBadge.classList.add('status-active');
+                statusBadge.textContent = '● Active';
+            } else if (status === 'ready') {
+                statusBadge.classList.add('status-ready');
+                statusBadge.textContent = '● Connected';
+            }
+        }
+
+        function showAlert(message, type) {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            alertContainer.appendChild(alert);
+            
+            setTimeout(() => alert.remove(), 5000);
+        }
+
+        function addMessage(type, name, message, timestamp) {
+            const item = document.createElement('div');
+            item.className = `message-item message-${type}`;
+            
+            const time = new Date(timestamp).toLocaleTimeString();
+            const prefix = type === 'received' ? '📩 From' : '✅ To';
+            
+            item.innerHTML = `
+                <strong>${prefix}: ${name}</strong><br>
+                ${message}
+                <div class="message-time">${time}</div>
+            `;
+            
+            messageList.insertBefore(item, messageList.firstChild);
+        }
+
+        function resetUI() {
+            qrArea.classList.add('hidden');
+            readyArea.classList.add('hidden');
+            startBtn.classList.remove('hidden');
+            stopBtn.classList.add('hidden');
+            updateStatus('inactive');
+        }
+    </script>
+</body>
+</html>
