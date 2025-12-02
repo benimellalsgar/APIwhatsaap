@@ -3,19 +3,36 @@ const qrcode = require('qrcode');
 const AIService = require('./aiService');
 
 class MultiUserBotManager {
-    constructor(io) {
+    constructor(io, userDataStore = null) {
         this.io = io;
-        this.sessions = new Map(); // userId -> client
-        this.aiService = new AIService();
+        this.sessions = new Map(); // userId -> {client, config, aiService}
+        this.defaultAIService = new AIService();
+        this.userDataStore = userDataStore;
     }
 
     // Create new session for a user
-    async createSession(userId) {
+    async createSession(userId, userConfig = {}) {
         if (this.sessions.has(userId)) {
             throw new Error('Session already exists for this user');
         }
 
         console.log(`🚀 Creating session for user: ${userId}`);
+        
+        // Load saved user data if available and config not provided
+        if (this.userDataStore && !userConfig.businessData) {
+            const savedData = await this.userDataStore.loadUserData(userId);
+            if (savedData) {
+                userConfig = {
+                    businessData: savedData.businessData,
+                    apiKey: userConfig.apiKey || savedData.apiKey
+                };
+                console.log(`📂 Loaded saved data for user: ${userId}`);
+            }
+        }
+        
+        if (userConfig.apiKey) {
+            console.log(`🔑 User ${userId} provided their own API key`);
+        }
 
         try {
             const client = new Client({
@@ -43,12 +60,25 @@ class MultiUserBotManager {
                 }
             });
 
+            // Create user-specific AI service with their business data
+            let aiService;
+            if (userConfig.businessData || userConfig.apiKey) {
+                aiService = new AIService(
+                    userConfig.apiKey || null,
+                    userConfig.businessData || null
+                );
+            } else {
+                aiService = this.defaultAIService;
+            }
+
             // Store session info
             const sessionInfo = {
                 client: client,
                 isReady: false,
                 userId: userId,
-                qrCode: null
+                qrCode: null,
+                config: userConfig,
+                aiService: aiService
             };
 
             this.sessions.set(userId, sessionInfo);
@@ -196,8 +226,12 @@ class MultiUserBotManager {
             // Typing indicator
             await chat.sendStateTyping();
 
+            // Get user's AI service
+            const sessionInfo = this.sessions.get(userId);
+            const aiService = sessionInfo.aiService || this.defaultAIService;
+
             // Get AI response
-            const aiResponse = await this.aiService.generateResponse(messageBody, {
+            const aiResponse = await aiService.generateResponse(messageBody, {
                 senderName: senderName,
                 chatId: `${userId}_${message.from}`
             });

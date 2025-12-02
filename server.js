@@ -3,6 +3,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
 const MultiUserBotManager = require('./services/multiUserBotManager');
+const UserDataStore = require('./services/userDataStore');
 require('dotenv').config();
 
 const app = express();
@@ -15,8 +16,9 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Multi-User Bot Manager Instance
-const botManager = new MultiUserBotManager(io);
+// Multi-User Bot Manager and Data Store Instances
+const userDataStore = new UserDataStore();
+const botManager = new MultiUserBotManager(io, userDataStore);
 
 // Health check endpoint (must respond quickly for Railway)
 app.get('/health', (req, res) => {
@@ -62,14 +64,19 @@ app.get('/api/status/:userId', (req, res) => {
 
 // Start new session for a user
 app.post('/api/start', async (req, res) => {
-    const { userId } = req.body;
+    const { userId, config } = req.body;
     
     if (!userId) {
         return res.status(400).json({ error: 'userId is required' });
     }
 
     try {
-        await botManager.createSession(userId);
+        // Save user data if provided
+        if (config && config.businessData) {
+            await userDataStore.saveUserData(userId, config);
+        }
+        
+        await botManager.createSession(userId, config);
         res.json({ message: 'Session started. Please scan QR code.', userId });
     } catch (error) {
         res.status(500).json({ error: error.message });

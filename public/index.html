@@ -253,6 +253,33 @@
                 border-radius: 10px;
                 margin: 10px 0;
             ">
+            
+            <div class="instructions" style="margin-top: 20px;">
+                <h3>� Your Business Data</h3>
+                <p>Tell the bot about your products, services, and prices</p>
+            </div>
+            
+            <textarea id="businessData" placeholder="Example:&#10;Products:&#10;- iPhone 15 Pro: 12000 DH&#10;- Samsung Galaxy S24: 9500 DH&#10;- MacBook Pro M3: 25000 DH&#10;&#10;Services:&#10;- Delivery: 50 DH (Casablanca), 100 DH (other cities)&#10;- Warranty: 1 year included&#10;&#10;Working hours: 9AM - 9PM" style="
+                width: 100%;
+                padding: 15px;
+                font-size: 1em;
+                border: 2px solid #ddd;
+                border-radius: 10px;
+                margin: 10px 0;
+                min-height: 200px;
+                font-family: inherit;
+                resize: vertical;
+            "></textarea>
+            
+            <input type="text" id="apiKey" placeholder="Perplexity API Key (optional - for your own key)" style="
+                width: 100%;
+                padding: 12px;
+                font-size: 0.9em;
+                border: 2px solid #ddd;
+                border-radius: 10px;
+                margin: 10px 0;
+            ">
+            
             <button id="enterBtn" class="btn-start">Enter & Start Bot</button>
         </div>
 
@@ -321,15 +348,31 @@
         const messageList = document.getElementById('messageList');
 
         // Enter button handler
+        let userConfig = {};
         enterBtn.addEventListener('click', () => {
             const userId = userIdField.value.trim();
+            const businessData = document.getElementById('businessData').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            
             if (!userId) {
                 alert('Please enter your name/ID');
                 return;
             }
             
+            if (!businessData) {
+                alert('Please enter your business data (products, services, prices)');
+                return;
+            }
+            
             currentUserId = userId;
             displayUserId.textContent = userId;
+            
+            // Store user configuration
+            userConfig = { 
+                businessData: businessData,
+                apiKey: apiKey || null
+            };
+            
             userIdInput.classList.add('hidden');
             botArea.classList.remove('hidden');
             
@@ -409,7 +452,10 @@
                 const res = await fetch('/api/start', { 
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: currentUserId })
+                    body: JSON.stringify({ 
+                        userId: currentUserId,
+                        config: userConfig
+                    })
                 });
                 const data = await res.json();
                 
