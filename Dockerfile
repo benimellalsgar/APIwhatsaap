@@ -8,17 +8,18 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm ci --omit=dev
 
 # Copy application files
 COPY . .
 
-# Set environment variables
+# Set environment variables for Puppeteer
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable \
+    NODE_ENV=production
 
-# Expose port
-EXPOSE 3000
+# Expose port (Railway will override with $PORT)
+EXPOSE 8080
 
 # Start application
-CMD ["npm", "start"]
+CMD ["node", "server.js"]

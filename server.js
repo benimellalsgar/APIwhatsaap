@@ -132,8 +132,8 @@ io.on('connection', (socket) => {
 });
 
 // Start server
-server.listen(PORT, () => {
-    console.log(`🌐 Web server running on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🌐 Web server running on http://0.0.0.0:${PORT}`);
     console.log(`📱 Open this URL in your browser to scan WhatsApp QR code`);
 });
 

@@ -28,8 +28,13 @@ class MultiUserBotManager {
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
                         '--disable-dev-shm-usage',
-                        '--disable-gpu'
+                        '--disable-gpu',
+                        '--disable-software-rasterizer',
+                        '--disable-extensions',
+                        '--no-zygote',
+                        '--single-process'
                     ],
+                    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
                     timeout: 60000 // 60 second timeout
                 },
                 webVersionCache: {
