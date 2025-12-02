@@ -18,8 +18,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Multi-User Bot Manager Instance
 const botManager = new MultiUserBotManager(io);
 
-// Health check endpoint
+// Health check endpoint (must respond quickly for Railway)
 app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
+
+// Detailed status endpoint
+app.get('/status', (req, res) => {
     res.status(200).json({ 
         status: 'ok', 
         uptime: process.uptime(),
