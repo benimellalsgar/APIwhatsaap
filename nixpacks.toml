@@ -1,5 +1,6 @@
 [phases.setup]
-nixPkgs = ['nodejs', 'chromium', 'nss', 'freetype', 'harfbuzz', 'ca-certificates', 'fontconfig']
+nixPkgs = ['nodejs', 'chromium']
+aptPkgs = ['chromium', 'chromium-sandbox']
 
 [phases.install]
 cmds = ['npm ci']
