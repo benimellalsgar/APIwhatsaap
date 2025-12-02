@@ -28,7 +28,28 @@ class MultiUserBotManager {
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
                         '--disable-dev-shm-usage',
-                        '--disable-gpu'
+                        '--disable-gpu',
+                        '--disable-software-rasterizer',
+                        '--disable-dev-tools',
+                        '--no-first-run',
+                        '--no-zygote',
+                        '--single-process',
+                        '--disable-extensions',
+                        '--disable-background-networking',
+                        '--disable-default-apps',
+                        '--mute-audio',
+                        '--no-default-browser-check',
+                        '--disable-hang-monitor',
+                        '--disable-prompt-on-repost',
+                        '--disable-sync',
+                        '--metrics-recording-only',
+                        '--safebrowsing-disable-auto-update',
+                        '--disable-background-timer-throttling',
+                        '--disable-renderer-backgrounding',
+                        '--disable-backgrounding-occluded-windows',
+                        '--disable-ipc-flooding-protection',
+                        '--password-store=basic',
+                        '--use-mock-keychain'
                     ]
                 }
             });

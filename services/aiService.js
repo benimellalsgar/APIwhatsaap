@@ -22,7 +22,7 @@ class AIService {
         }
 
         this.conversationHistory = new Map();
-        this.maxHistoryLength = 10;
+        this.maxHistoryLength = 4; // Reduced from 10 to save memory
     }
 
     /**
