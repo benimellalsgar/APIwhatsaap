@@ -17,61 +17,62 @@ class MultiUserBotManager {
 
         console.log(`🚀 Creating session for user: ${userId}`);
 
-        const client = new Client({
-            authStrategy: new LocalAuth({
-                clientId: `user_${userId}`
-            }),
-            puppeteer: {
-                headless: true,
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--single-process',
-                    '--disable-gpu',
-                    '--disable-extensions',
-                    '--disable-background-networking',
-                    '--disable-default-apps',
-                    '--disable-sync',
-                    '--mute-audio',
-                    '--no-default-browser-check',
-                    '--autoplay-policy=user-gesture-required',
-                    '--disable-background-timer-throttling',
-                    '--disable-backgrounding-occluded-windows',
-                    '--disable-breakpad',
-                    '--disable-component-extensions-with-background-pages',
-                    '--disable-features=TranslateUI',
-                    '--disable-ipc-flooding-protection',
-                    '--disable-renderer-backgrounding',
-                    '--force-color-profile=srgb',
-                    '--metrics-recording-only'
-                ],
-                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH || undefined
-            }
-        });
+        try {
+            const client = new Client({
+                authStrategy: new LocalAuth({
+                    clientId: `user_${userId}`
+                }),
+                puppeteer: {
+                    headless: true,
+                    args: [
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu'
+                    ]
+                }
+            });
 
-        // Store session info
-        const sessionInfo = {
-            client: client,
-            isReady: false,
-            userId: userId,
-            qrCode: null
-        };
+            // Store session info
+            const sessionInfo = {
+                client: client,
+                isReady: false,
+                userId: userId,
+                qrCode: null
+            };
 
-        this.sessions.set(userId, sessionInfo);
-        this.setupEventHandlers(userId, client);
-        
-        await client.initialize();
-        return sessionInfo;
+            this.sessions.set(userId, sessionInfo);
+            this.setupEventHandlers(userId, client);
+            
+            // Initialize without awaiting to prevent blocking
+            client.initialize().catch(error => {
+                console.error(`❌ [${userId}] Failed to initialize:`, error);
+                this.sessions.delete(userId);
+                this.io.to(userId).emit('error', { 
+                    userId,
+                    message: 'Failed to initialize WhatsApp client',
+                    error: error.message 
+                });
+            });
+            
+            return sessionInfo;
+        } catch (error) {
+            console.error(`❌ [${userId}] Error creating session:`, error);
+            this.sessions.delete(userId);
+            throw error;
+        }
     }
 
     setupEventHandlers(userId, client) {
+        // Loading
+        client.on('loading_screen', (percent, message) => {
+            console.log(`⏳ [${userId}] Loading: ${percent}% - ${message}`);
+            this.io.to(userId).emit('loading', { userId, percent, message });
+        });
+
         // QR Code
         client.on('qr', async (qr) => {
-            console.log(`📱 [${userId}] QR Code generated`);
+            console.log(`📱 [${userId}] QR Code generated - Scan with WhatsApp on your phone`);
             
             try {
                 const qrDataURL = await qrcode.toDataURL(qr);
@@ -115,13 +116,23 @@ class MultiUserBotManager {
 
         // Authentication
         client.on('authenticated', () => {
-            console.log(`🔐 [${userId}] Authenticated`);
+            console.log(`🔐 [${userId}] Authenticated successfully!`);
             this.io.to(userId).emit('authenticated', { userId });
         });
 
         client.on('auth_failure', (message) => {
             console.error(`❌ [${userId}] Auth failed:`, message);
             this.io.to(userId).emit('authFailure', { userId, error: message });
+        });
+
+        // Remote session saved
+        client.on('remote_session_saved', () => {
+            console.log(`💾 [${userId}] Session saved remotely`);
+        });
+
+        // State change
+        client.on('change_state', (state) => {
+            console.log(`🔄 [${userId}] State changed to:`, state);
         });
     }
 
