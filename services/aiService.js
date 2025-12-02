@@ -4,25 +4,30 @@ const Anthropic = require('@anthropic-ai/sdk');
 class AIService {
     constructor() {
         // Determine which AI provider to use
-        this.provider = process.env.AI_PROVIDER || 'openai'; // 'openai', 'claude', or 'perplexity'
+        this.provider = process.env.AI_PROVIDER || 'perplexity';
         
         if (this.provider === 'claude') {
             this.anthropic = new Anthropic({
-                apiKey: process.env.ANTHROPIC_API_KEY
+                apiKey: process.env.ANTHROPIC_API_KEY || 'dummy-key'
             });
         } else if (this.provider === 'perplexity') {
             this.openai = new OpenAI({
-                apiKey: process.env.PERPLEXITY_API_KEY,
+                apiKey: process.env.PERPLEXITY_API_KEY || 'dummy-key',
                 baseURL: 'https://api.perplexity.ai'
             });
         } else {
             this.openai = new OpenAI({
-                apiKey: process.env.OPENAI_API_KEY
+                apiKey: process.env.OPENAI_API_KEY || 'dummy-key'
             });
         }
 
         this.conversationHistory = new Map();
         this.maxHistoryLength = 4; // Reduced from 10 to save memory
+        
+        // Warn if API keys are missing
+        if (!process.env.PERPLEXITY_API_KEY && this.provider === 'perplexity') {
+            console.warn('⚠️ PERPLEXITY_API_KEY is not set. Bot will not work properly.');
+        }
     }
 
     /**
