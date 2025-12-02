@@ -1,9 +1,0 @@
-[phases.setup]
-nixPkgs = ['nodejs', 'chromium']
-aptPkgs = ['chromium', 'chromium-sandbox']
-
-[phases.install]
-cmds = ['npm ci']
-
-[start]
-cmd = 'npm start'
