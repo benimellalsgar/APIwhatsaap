@@ -18,6 +18,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Multi-User Bot Manager Instance
 const botManager = new MultiUserBotManager(io);
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'ok', 
+        uptime: process.uptime(),
+        sessions: botManager.getAllSessions().length,
+        memory: process.memoryUsage()
+    });
+});
+
 // Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -91,6 +101,12 @@ app.post('/api/clear', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Internal server error' });
 });
 
 // Socket.IO for real-time updates

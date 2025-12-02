@@ -1,18 +1,27 @@
 # WhatsApp AI Agent 🤖
 
-An intelligent WhatsApp bot powered by AI that automatically responds to messages using OpenAI's GPT models.
+An intelligent WhatsApp bot powered by AI that automatically responds to messages. Multi-user support with web dashboard.
+
+## ⚠️ IMPORTANT: Deployment Requirements
+
+**This bot requires minimum 1GB RAM.** Free hosting (Render, Vercel, Netlify) will NOT work.
+
+📖 **[Read Full Deployment Guide](DEPLOYMENT.md)** for:
+- ✅ Railway ($5/month) - Recommended
+- Render.com paid ($7/month)
+- VPS hosting
+- Local deployment
 
 ## Features ✨
 
-- 🌐 **Web Interface**: Beautiful web dashboard to scan QR code
-- 🤖 **AI-Powered Responses**: Uses OpenAI GPT models for intelligent conversations
-- 💬 **Conversation Memory**: Maintains context of recent messages for natural dialogue
-- 📱 **Easy Setup**: Simple QR code authentication with WhatsApp Web
-- 🔄 **Single Session**: One user at a time, prevents conflicts
-- 👥 **Multi-User Ready**: Users can take turns connecting their WhatsApp
-- ⚙️ **Customizable**: Configure bot personality, response style, and more
-- 📊 **Real-time Updates**: See messages in/out live on the dashboard
-- 🚀 **Production Ready**: Error handling and logging included
+- 🌐 **Web Interface**: Beautiful dashboard with QR code scanning
+- 👥 **Multi-User**: Multiple people can connect their own WhatsApp numbers
+- 🤖 **AI-Powered**: Uses Perplexity AI for natural conversations
+- 💬 **Multilingual**: Responds in same language (English, Arabic, French, Darija)
+- 🛍️ **Sales Bot**: Configured with product catalog and pricing
+- 📊 **Real-time**: Live message activity tracking
+- 🔐 **Session Management**: Save sessions, clear auth data
+- 🚀 **Production Ready**: Health checks, error handling, logging
 
 ## Prerequisites 📋
 
