@@ -28,29 +28,13 @@ class MultiUserBotManager {
                         '--no-sandbox',
                         '--disable-setuid-sandbox',
                         '--disable-dev-shm-usage',
-                        '--disable-gpu',
-                        '--disable-software-rasterizer',
-                        '--disable-dev-tools',
-                        '--no-first-run',
-                        '--no-zygote',
-                        '--single-process',
-                        '--disable-extensions',
-                        '--disable-background-networking',
-                        '--disable-default-apps',
-                        '--mute-audio',
-                        '--no-default-browser-check',
-                        '--disable-hang-monitor',
-                        '--disable-prompt-on-repost',
-                        '--disable-sync',
-                        '--metrics-recording-only',
-                        '--safebrowsing-disable-auto-update',
-                        '--disable-background-timer-throttling',
-                        '--disable-renderer-backgrounding',
-                        '--disable-backgrounding-occluded-windows',
-                        '--disable-ipc-flooding-protection',
-                        '--password-store=basic',
-                        '--use-mock-keychain'
-                    ]
+                        '--disable-gpu'
+                    ],
+                    timeout: 60000 // 60 second timeout
+                },
+                webVersionCache: {
+                    type: 'remote',
+                    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
                 }
             });
 
@@ -65,22 +49,48 @@ class MultiUserBotManager {
             this.sessions.set(userId, sessionInfo);
             this.setupEventHandlers(userId, client);
             
-            // Initialize without awaiting to prevent blocking
-            client.initialize().catch(error => {
-                console.error(`❌ [${userId}] Failed to initialize:`, error);
-                this.sessions.delete(userId);
-                this.io.to(userId).emit('error', { 
-                    userId,
-                    message: 'Failed to initialize WhatsApp client',
-                    error: error.message 
-                });
-            });
+            // Initialize with retry logic
+            this.initializeWithRetry(userId, client, 3);
             
             return sessionInfo;
         } catch (error) {
             console.error(`❌ [${userId}] Error creating session:`, error);
             this.sessions.delete(userId);
             throw error;
+        }
+    }
+
+    async initializeWithRetry(userId, client, maxRetries) {
+        let attempt = 0;
+        
+        while (attempt < maxRetries) {
+            try {
+                attempt++;
+                console.log(`🔄 [${userId}] Initialization attempt ${attempt}/${maxRetries}`);
+                
+                await client.initialize();
+                console.log(`✅ [${userId}] Initialized successfully`);
+                return;
+                
+            } catch (error) {
+                console.error(`❌ [${userId}] Attempt ${attempt} failed:`, error.message);
+                
+                if (attempt >= maxRetries) {
+                    console.error(`❌ [${userId}] All attempts failed`);
+                    this.sessions.delete(userId);
+                    this.io.to(userId).emit('error', { 
+                        userId,
+                        message: 'Failed to initialize WhatsApp after multiple attempts. Please refresh and try again.',
+                        error: error.message 
+                    });
+                    return;
+                }
+                
+                // Wait before retry (exponential backoff)
+                const waitTime = 2000 * attempt;
+                console.log(`⏳ [${userId}] Waiting ${waitTime}ms before retry...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
         }
     }
 
