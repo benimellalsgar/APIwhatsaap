@@ -77,6 +77,22 @@ app.post('/api/stop', async (req, res) => {
     }
 });
 
+// Clear user session data (logout and delete saved session)
+app.post('/api/clear', async (req, res) => {
+    const { userId } = req.body;
+    
+    if (!userId) {
+        return res.status(400).json({ error: 'userId is required' });
+    }
+
+    try {
+        await botManager.clearSession(userId);
+        res.json({ message: 'Session cleared successfully. User will need to scan QR code again.', userId });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Socket.IO for real-time updates
 io.on('connection', (socket) => {
     console.log('👤 User connected:', socket.id);

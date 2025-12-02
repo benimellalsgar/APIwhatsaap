@@ -218,6 +218,37 @@ class MultiUserBotManager {
         console.log(`✅ [${userId}] Session stopped`);
     }
 
+    async clearSession(userId) {
+        const fs = require('fs').promises;
+        const path = require('path');
+        
+        // First stop the session if it's running
+        if (this.sessions.has(userId)) {
+            await this.stopSession(userId);
+        }
+
+        console.log(`🗑️ [${userId}] Clearing saved session data...`);
+
+        try {
+            // Delete the saved session folder
+            const sessionPath = path.join(process.cwd(), '.wwebjs_auth', `session-user_${userId}`);
+            
+            try {
+                await fs.rm(sessionPath, { recursive: true, force: true });
+                console.log(`✅ [${userId}] Session data cleared`);
+            } catch (error) {
+                if (error.code !== 'ENOENT') {
+                    console.log(`⚠️ [${userId}] No saved session found or already cleared`);
+                }
+            }
+
+            this.io.to(userId).emit('sessionCleared', { userId });
+        } catch (error) {
+            console.error(`❌ [${userId}] Error clearing session:`, error.message);
+            throw error;
+        }
+    }
+
     getSession(userId) {
         return this.sessions.get(userId);
     }

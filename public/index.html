@@ -296,6 +296,7 @@
 
             <button id="startBtn" class="btn-start">Start My Bot</button>
             <button id="stopBtn" class="btn-stop hidden">Stop My Bot</button>
+            <button id="clearBtn" class="btn-stop hidden" style="background: #ff9800; margin-top: 10px;">🗑️ Clear Session (Logout)</button>
         </div>
     </div>
 
@@ -310,6 +311,7 @@
         const displayUserId = document.getElementById('displayUserId');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const clearBtn = document.getElementById('clearBtn');
         const statusBadge = document.getElementById('statusBadge');
         const qrArea = document.getElementById('qrArea');
         const qrCode = document.getElementById('qrCode');
@@ -390,6 +392,11 @@
             resetUI();
         });
 
+        socket.on('sessionCleared', () => {
+            showAlert('Session cleared! You will need to scan QR code next time.', 'success');
+            resetUI();
+        });
+
         socket.on('error', (data) => {
             showAlert('Error: ' + data.message, 'error');
         });
@@ -434,10 +441,32 @@
             }
         });
 
+        clearBtn.addEventListener('click', async () => {
+            if (!currentUserId) return;
+            
+            if (confirm('⚠️ This will LOGOUT and DELETE your saved session. You will need to scan QR code again next time. Continue?')) {
+                try {
+                    const res = await fetch('/api/clear', { 
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: currentUserId })
+                    });
+                    const data = await res.json();
+                    
+                    if (!res.ok) {
+                        showAlert(data.error, 'error');
+                    }
+                } catch (error) {
+                    showAlert('Failed to clear session', 'error');
+                }
+            }
+        });
+
         function updateUI(data) {
             if (data.exists) {
                 startBtn.classList.add('hidden');
                 stopBtn.classList.remove('hidden');
+                clearBtn.classList.remove('hidden');
                 
                 if (data.isReady) {
                     updateStatus('ready');
@@ -450,6 +479,7 @@
             } else {
                 startBtn.classList.remove('hidden');
                 stopBtn.classList.add('hidden');
+                clearBtn.classList.add('hidden');
                 updateStatus('inactive');
             }
         }
@@ -499,6 +529,7 @@
             readyArea.classList.add('hidden');
             startBtn.classList.remove('hidden');
             stopBtn.classList.add('hidden');
+            clearBtn.classList.add('hidden');
             updateStatus('inactive');
         }
     </script>
