@@ -36,9 +36,9 @@ class AIService {
     }
 
     /**
-     * Generate AI response based on user message
+     * Generate AI response with file/media support
      * @param {string} message - User's message
-     * @param {object} context - Additional context (senderName, chatId, etc.)
+     * @param {object} context - Additional context (senderName, chatId, fileInfo, etc.)
      * @returns {Promise<string>} AI generated response
      */
     async generateResponse(message, context = {}) {
@@ -58,10 +58,19 @@ class AIService {
                 history.pop();
             }
 
+            // Build message content (with optional file)
+            let userContent = message;
+            
+            // If there's a file, format it for the AI
+            if (context.fileInfo) {
+                const fileDescription = await this.describeFile(context.fileInfo);
+                userContent = `${message}\n\n[File attached: ${fileDescription}]`;
+            }
+            
             // Add user message to history
             history.push({
                 role: 'user',
-                content: message
+                content: userContent
             });
 
             // Keep only recent messages
@@ -237,6 +246,63 @@ Remember: Be chill, natural, friendly. Don't write paragraphs!`;
      */
     clearAllHistories() {
         this.conversationHistory.clear();
+    }
+
+    /**
+     * Describe a file based on its metadata
+     * @param {Object} fileInfo - File information object
+     * @returns {string} File description for AI
+     */
+    describeFile(fileInfo) {
+        if (!fileInfo) return '';
+        
+        const { mimeType, size, originalName } = fileInfo;
+        let fileType = 'file';
+        
+        if (mimeType.startsWith('image/')) fileType = 'image';
+        else if (mimeType.startsWith('audio/')) fileType = 'audio';
+        else if (mimeType.startsWith('video/')) fileType = 'video';
+        else if (mimeType === 'application/pdf') fileType = 'PDF document';
+        
+        const sizeMB = (size / (1024 * 1024)).toFixed(2);
+        return `[User sent a ${fileType}${originalName ? ` named "${originalName}"` : ''}, ${sizeMB}MB]`;
+    }
+
+    /**
+     * Analyze file content using appropriate AI model
+     * @param {Object} fileInfo - File information object with path and metadata
+     * @returns {Promise<string>} Analysis result
+     */
+    async analyzeFileContent(fileInfo) {
+        if (!fileInfo || !fileInfo.path) {
+            return "I can see you sent a file, but I couldn't access it.";
+        }
+
+        const { mimeType, path: filePath } = fileInfo;
+
+        // For images, we could integrate vision AI (GPT-4 Vision, Claude Vision, etc.)
+        if (mimeType.startsWith('image/')) {
+            // Placeholder for vision AI integration
+            // In future: call GPT-4 Vision or similar API with image
+            return "I can see you sent an image. (Vision analysis will be implemented in next update)";
+        }
+
+        // For audio files, we could integrate transcription
+        if (mimeType.startsWith('audio/')) {
+            return "I received your audio file. (Audio transcription will be implemented in next update)";
+        }
+
+        // For PDFs, we could extract text
+        if (mimeType === 'application/pdf') {
+            return "I received your PDF document. (PDF text extraction will be implemented in next update)";
+        }
+
+        // For videos
+        if (mimeType.startsWith('video/')) {
+            return "I received your video file. (Video analysis will be implemented in next update)";
+        }
+
+        return "I received your file. How can I help you with it?";
     }
 }
 

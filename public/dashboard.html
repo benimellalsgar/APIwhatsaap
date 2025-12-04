@@ -313,6 +313,26 @@
                 ">
             </div>
 
+            <div id="fileTestArea" class="instructions" style="margin-bottom: 20px;">
+                <h3>🖼️ Test File Upload</h3>
+                <p>Upload images, PDFs, audio, or video to test AI responses</p>
+                
+                <input type="file" id="fileInput" accept="image/*,application/pdf,audio/*,video/*" style="
+                    width: 100%;
+                    padding: 12px;
+                    font-size: 0.9em;
+                    border: 2px solid #ddd;
+                    border-radius: 10px;
+                    margin: 10px 0;
+                ">
+                
+                <button id="uploadFileBtn" class="btn-action" style="width: 100%; margin-top: 10px;">
+                    📤 Upload & Test
+                </button>
+                
+                <div id="uploadStatus" style="margin-top: 10px; font-size: 0.9em; color: #666;"></div>
+            </div>
+
         <div id="qrArea" class="qr-container hidden">
             <h3>Scan QR Code</h3>
             <div class="loading">
@@ -640,6 +660,66 @@
             clearBtn.classList.add('hidden');
             updateStatus('inactive');
         }
+
+        // File upload handler
+        const uploadFileBtn = document.getElementById('uploadFileBtn');
+        const fileInput = document.getElementById('fileInput');
+        const uploadStatus = document.getElementById('uploadStatus');
+
+        uploadFileBtn.addEventListener('click', async () => {
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                uploadStatus.textContent = '⚠️ Please select a file first';
+                uploadStatus.style.color = '#dc3545';
+                return;
+            }
+
+            // Check file size (max 25MB)
+            if (file.size > 25 * 1024 * 1024) {
+                uploadStatus.textContent = '⚠️ File too large. Max size: 25MB';
+                uploadStatus.style.color = '#dc3545';
+                return;
+            }
+
+            uploadStatus.textContent = '⏳ Uploading...';
+            uploadStatus.style.color = '#007bff';
+            uploadFileBtn.disabled = true;
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    },
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    uploadStatus.textContent = `✅ ${result.message}`;
+                    uploadStatus.style.color = '#28a745';
+                    
+                    if (result.analysis) {
+                        uploadStatus.textContent += `\n\n🤖 AI Response: ${result.analysis}`;
+                    }
+                    
+                    fileInput.value = '';
+                } else {
+                    uploadStatus.textContent = `❌ ${result.error || 'Upload failed'}`;
+                    uploadStatus.style.color = '#dc3545';
+                }
+            } catch (error) {
+                uploadStatus.textContent = `❌ Error: ${error.message}`;
+                uploadStatus.style.color = '#dc3545';
+            } finally {
+                uploadFileBtn.disabled = false;
+            }
+        });
     </script>
 </body>
 </html>

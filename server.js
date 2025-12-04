@@ -2,11 +2,14 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
+const multer = require('multer');
 const MultiUserBotManager = require('./services/multiUserBotManager');
 const UserDataStore = require('./services/userDataStore');
 const authService = require('./services/authService');
 const { authenticate, authorize } = require('./middleware/auth');
 const db = require('./database/db');
+const fileStorageService = require('./services/fileStorageService');
+const AIService = require('./services/aiService');
 require('dotenv').config();
 
 const app = express();
@@ -24,6 +27,14 @@ db.initialize().catch(err => {
 // Middleware
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Configure multer for file uploads (memory storage)
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 25 * 1024 * 1024 // 25MB max file size
+    }
+});
 
 // Multi-User Bot Manager and Data Store Instances
 const userDataStore = new UserDataStore();
@@ -116,6 +127,44 @@ app.get('/api/sessions', authenticate, async (req, res) => {
         const connections = await db.getWhatsAppConnectionsByTenantId(req.tenant.id);
         res.json({ sessions: connections });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// File upload endpoint (protected)
+app.post('/api/upload', authenticate, upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const tenantId = `tenant_${req.tenant.id}`;
+        
+        // Save file
+        const fileInfo = await fileStorageService.saveFile(
+            req.file.buffer,
+            req.file.mimetype,
+            tenantId,
+            req.file.originalname
+        );
+
+        console.log(`📁 File uploaded by tenant ${tenantId}:`, fileInfo);
+
+        // Get AI analysis
+        const aiService = new AIService();
+        const analysis = await aiService.analyzeFileContent(fileInfo);
+
+        res.json({ 
+            message: 'File uploaded successfully',
+            fileInfo: {
+                mimeType: fileInfo.mimeType,
+                size: fileInfo.size,
+                category: fileInfo.category
+            },
+            analysis
+        });
+    } catch (error) {
+        console.error('Upload error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -245,10 +294,14 @@ io.on('connection', (socket) => {
     });
 });
 
+// Start file cleanup job (runs every hour)
+fileStorageService.startCleanupJob();
+
 // Start server
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Web server running on http://0.0.0.0:${PORT}`);
     console.log(`📱 Open this URL in your browser to scan WhatsApp QR code`);
+    console.log(`🗑️ File cleanup job started (runs every hour)`);
 });
 
 // Handle graceful shutdown

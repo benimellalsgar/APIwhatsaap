@@ -1,6 +1,7 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const AIService = require('./aiService');
+const fileStorageService = require('./fileStorageService');
 
 class MultiUserBotManager {
     constructor(io, userDataStore = null) {
@@ -215,11 +216,44 @@ class MultiUserBotManager {
 
             console.log(`\n📩 [${userId}] From ${senderName}: ${messageBody}`);
 
+            // Check if message has media
+            let fileInfo = null;
+            if (message.hasMedia) {
+                console.log(`📎 [${userId}] Message contains media, downloading...`);
+                
+                try {
+                    const media = await message.downloadMedia();
+                    
+                    if (media) {
+                        // Save the media file
+                        fileInfo = await fileStorageService.downloadWhatsAppMedia(media, userId);
+                        console.log(`✅ [${userId}] Media saved: ${fileInfo.mimeType}, ${(fileInfo.size / 1024).toFixed(2)}KB`);
+                        
+                        // Emit to user's web interface
+                        this.io.to(userId).emit('mediaReceived', {
+                            userId,
+                            from: senderName,
+                            fileInfo: {
+                                mimeType: fileInfo.mimeType,
+                                size: fileInfo.size,
+                                category: fileInfo.category
+                            },
+                            message: messageBody || '[Media file]',
+                            timestamp: new Date().toISOString()
+                        });
+                    }
+                } catch (mediaError) {
+                    console.error(`❌ [${userId}] Error downloading media:`, mediaError.message);
+                    // Continue processing without the media
+                }
+            }
+
             // Emit to user's web interface
             this.io.to(userId).emit('messageReceived', {
                 userId,
                 from: senderName,
-                message: messageBody,
+                message: messageBody || (fileInfo ? '[Media file]' : ''),
+                hasMedia: !!fileInfo,
                 timestamp: new Date().toISOString()
             });
 
@@ -230,10 +264,11 @@ class MultiUserBotManager {
             const sessionInfo = this.sessions.get(userId);
             const aiService = sessionInfo.aiService || this.defaultAIService;
 
-            // Get AI response
-            const aiResponse = await aiService.generateResponse(messageBody, {
+            // Get AI response with file info if available
+            const aiResponse = await aiService.generateResponse(messageBody || '', {
                 senderName: senderName,
-                chatId: `${userId}_${message.from}`
+                chatId: `${userId}_${message.from}`,
+                fileInfo: fileInfo
             });
 
             // Send response
