@@ -37,11 +37,28 @@ CREATE TABLE IF NOT EXISTS whatsapp_connections (
     last_activity TIMESTAMP
 );
 
+-- Create tenant_files table for storing file library
+CREATE TABLE IF NOT EXISTS tenant_files (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+    file_name VARCHAR(255) NOT NULL,
+    file_label VARCHAR(255),
+    file_url TEXT NOT NULL,
+    cloudinary_public_id VARCHAR(255) NOT NULL,
+    file_type VARCHAR(50) NOT NULL,
+    file_size BIGINT,
+    mime_type VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_tenant_id ON whatsapp_connections(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_session_id ON whatsapp_connections(session_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_files_tenant_id ON tenant_files(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_files_label ON tenant_files(file_label);
 
 -- Create sessions table for tracking active sessions
 CREATE TABLE IF NOT EXISTS sessions (

@@ -9,6 +9,7 @@ const authService = require('./services/authService');
 const { authenticate, authorize } = require('./middleware/auth');
 const db = require('./database/db');
 const fileStorageService = require('./services/fileStorageService');
+const cloudinaryService = require('./services/cloudinaryService');
 const AIService = require('./services/aiService');
 require('dotenv').config();
 
@@ -131,40 +132,97 @@ app.get('/api/sessions', authenticate, async (req, res) => {
     }
 });
 
-// File upload endpoint (protected)
+// File upload endpoint (protected) - Upload to Cloudinary
 app.post('/api/upload', authenticate, upload.single('file'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        const tenantId = `tenant_${req.tenant.id}`;
+        const tenantId = req.tenant.id;
+        const { fileLabel } = req.body; // Optional label like "catalog", "pricelist", etc.
         
-        // Save file
-        const fileInfo = await fileStorageService.saveFile(
+        // Determine file type
+        let fileType = 'document';
+        if (req.file.mimetype.startsWith('image/')) fileType = 'image';
+        else if (req.file.mimetype.startsWith('audio/')) fileType = 'audio';
+        else if (req.file.mimetype.startsWith('video/')) fileType = 'video';
+
+        // Upload to Cloudinary
+        const uploadResult = await cloudinaryService.uploadFile(
             req.file.buffer,
-            req.file.mimetype,
-            tenantId,
-            req.file.originalname
+            `tenant_${tenantId}`,
+            req.file.originalname,
+            fileType
         );
 
-        console.log(`📁 File uploaded by tenant ${tenantId}:`, fileInfo);
+        // Save to database
+        const fileRecord = await db.createTenantFile(
+            tenantId,
+            req.file.originalname,
+            fileLabel || req.file.originalname,
+            uploadResult.url,
+            uploadResult.publicId,
+            fileType,
+            req.file.size,
+            req.file.mimetype
+        );
 
-        // Get AI analysis
-        const aiService = new AIService();
-        const analysis = await aiService.analyzeFileContent(fileInfo);
+        console.log(`📁 File uploaded to Cloudinary by tenant ${tenantId}:`, fileRecord.file_name);
 
         res.json({ 
             message: 'File uploaded successfully',
-            fileInfo: {
-                mimeType: fileInfo.mimeType,
-                size: fileInfo.size,
-                category: fileInfo.category
-            },
-            analysis
+            file: {
+                id: fileRecord.id,
+                fileName: fileRecord.file_name,
+                fileLabel: fileRecord.file_label,
+                fileUrl: fileRecord.file_url,
+                fileType: fileRecord.file_type,
+                size: fileRecord.file_size
+            }
         });
     } catch (error) {
         console.error('Upload error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get tenant files (protected)
+app.get('/api/files', authenticate, async (req, res) => {
+    try {
+        const files = await db.getTenantFiles(req.tenant.id);
+        res.json({ files });
+    } catch (error) {
+        console.error('Error fetching files:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete tenant file (protected)
+app.delete('/api/files/:fileId', authenticate, async (req, res) => {
+    try {
+        const { fileId } = req.params;
+        
+        // Get file from database
+        const files = await db.getTenantFiles(req.tenant.id);
+        const file = files.find(f => f.id === parseInt(fileId));
+        
+        if (!file) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+
+        // Delete from Cloudinary
+        const resourceType = file.file_type === 'image' ? 'image' : 
+                           file.file_type === 'video' || file.file_type === 'audio' ? 'video' : 'raw';
+        
+        await cloudinaryService.deleteFile(file.cloudinary_public_id, resourceType);
+
+        // Delete from database
+        await db.deleteTenantFile(file.id, req.tenant.id);
+
+        res.json({ message: 'File deleted successfully' });
+    } catch (error) {
+        console.error('Delete error:', error);
         res.status(500).json({ error: error.message });
     }
 });

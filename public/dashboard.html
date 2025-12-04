@@ -275,24 +275,37 @@
                 ">
             </div>
 
-            <div id="fileTestArea" class="instructions" style="margin-bottom: 20px;">
-                <h3>🖼️ Test File Upload</h3>
-                <p>Upload images, PDFs, audio, or video to test AI responses</p>
+            <div id="fileLibraryArea" class="instructions" style="margin-bottom: 20px;">
+                <h3>📚 File Library (Send to Customers)</h3>
+                <p>Upload catalog, price list, images - bot will send them when customers ask</p>
                 
-                <input type="file" id="fileInput" accept="image/*,application/pdf,audio/*,video/*" style="
-                    width: 100%;
-                    padding: 12px;
-                    font-size: 0.9em;
-                    border: 2px solid #ddd;
-                    border-radius: 10px;
-                    margin: 10px 0;
-                ">
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <input type="file" id="libraryFileInput" accept="image/*,application/pdf,audio/*,video/*" style="
+                        flex: 1;
+                        padding: 12px;
+                        font-size: 0.9em;
+                        border: 2px solid #ddd;
+                        border-radius: 10px;
+                    ">
+                    
+                    <input type="text" id="fileLabel" placeholder="Label (e.g., catalog, pricelist)" style="
+                        flex: 1;
+                        padding: 12px;
+                        font-size: 0.9em;
+                        border: 2px solid #ddd;
+                        border-radius: 10px;
+                    ">
+                </div>
                 
-                <button id="uploadFileBtn" class="btn-action" style="width: 100%; margin-top: 10px;">
-                    📤 Upload & Test
+                <button id="uploadLibraryFileBtn" class="btn-action" style="width: 100%; margin-bottom: 15px;">
+                    📤 Upload to Library
                 </button>
                 
-                <div id="uploadStatus" style="margin-top: 10px; font-size: 0.9em; color: #666;"></div>
+                <div id="libraryStatus" style="margin-bottom: 15px; font-size: 0.9em; color: #666;"></div>
+                
+                <div id="filesList" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; padding: 10px;">
+                    <p style="text-align: center; color: #999;">Loading files...</p>
+                </div>
             </div>
 
         <div id="qrArea" class="qr-container hidden">
@@ -620,39 +633,51 @@
             updateStatus('inactive');
         }
 
-        // File upload handler
-        const uploadFileBtn = document.getElementById('uploadFileBtn');
-        const fileInput = document.getElementById('fileInput');
-        const uploadStatus = document.getElementById('uploadStatus');
+        // File library handler
+        const uploadLibraryFileBtn = document.getElementById('uploadLibraryFileBtn');
+        const libraryFileInput = document.getElementById('libraryFileInput');
+        const fileLabel = document.getElementById('fileLabel');
+        const libraryStatus = document.getElementById('libraryStatus');
+        const filesList = document.getElementById('filesList');
 
-        uploadFileBtn.addEventListener('click', async () => {
-            const file = fileInput.files[0];
+        // Load files on page load
+        loadFiles();
+
+        uploadLibraryFileBtn.addEventListener('click', async () => {
+            const file = libraryFileInput.files[0];
+            const label = fileLabel.value.trim();
             
             if (!file) {
-                uploadStatus.textContent = '⚠️ Please select a file first';
-                uploadStatus.style.color = '#dc3545';
+                libraryStatus.textContent = '⚠️ Please select a file first';
+                libraryStatus.style.color = '#dc3545';
                 return;
             }
 
-            // Check file size (max 25MB)
+            if (!label) {
+                libraryStatus.textContent = '⚠️ Please enter a label (e.g., catalog, pricelist)';
+                libraryStatus.style.color = '#dc3545';
+                return;
+            }
+
             if (file.size > 25 * 1024 * 1024) {
-                uploadStatus.textContent = '⚠️ File too large. Max size: 25MB';
-                uploadStatus.style.color = '#dc3545';
+                libraryStatus.textContent = '⚠️ File too large. Max size: 25MB';
+                libraryStatus.style.color = '#dc3545';
                 return;
             }
 
-            uploadStatus.textContent = '⏳ Uploading...';
-            uploadStatus.style.color = '#007bff';
-            uploadFileBtn.disabled = true;
+            libraryStatus.textContent = '⏳ Uploading to Cloudinary...';
+            libraryStatus.style.color = '#007bff';
+            uploadLibraryFileBtn.disabled = true;
 
             try {
                 const formData = new FormData();
                 formData.append('file', file);
+                formData.append('fileLabel', label);
 
                 const response = await fetch('/api/upload', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        'Authorization': `Bearer ${token}`
                     },
                     body: formData
                 });
@@ -660,25 +685,82 @@
                 const result = await response.json();
 
                 if (response.ok) {
-                    uploadStatus.textContent = `✅ ${result.message}`;
-                    uploadStatus.style.color = '#28a745';
+                    libraryStatus.textContent = `✅ File uploaded! Bot can now send "${label}" to customers`;
+                    libraryStatus.style.color = '#28a745';
                     
-                    if (result.analysis) {
-                        uploadStatus.textContent += `\n\n🤖 AI Response: ${result.analysis}`;
-                    }
+                    libraryFileInput.value = '';
+                    fileLabel.value = '';
                     
-                    fileInput.value = '';
+                    // Reload files list
+                    loadFiles();
                 } else {
-                    uploadStatus.textContent = `❌ ${result.error || 'Upload failed'}`;
-                    uploadStatus.style.color = '#dc3545';
+                    libraryStatus.textContent = `❌ ${result.error || 'Upload failed'}`;
+                    libraryStatus.style.color = '#dc3545';
                 }
             } catch (error) {
-                uploadStatus.textContent = `❌ Error: ${error.message}`;
-                uploadStatus.style.color = '#dc3545';
+                libraryStatus.textContent = `❌ Error: ${error.message}`;
+                libraryStatus.style.color = '#dc3545';
             } finally {
-                uploadFileBtn.disabled = false;
+                uploadLibraryFileBtn.disabled = false;
             }
         });
+
+        async function loadFiles() {
+            try {
+                const response = await fetch('/api/files', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.files) {
+                    if (result.files.length === 0) {
+                        filesList.innerHTML = '<p style="text-align: center; color: #999;">No files uploaded yet</p>';
+                    } else {
+                        filesList.innerHTML = result.files.map(file => `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee;">
+                                <div style="flex: 1;">
+                                    <strong>${file.file_label}</strong><br>
+                                    <small style="color: #666;">${file.file_name} (${(file.file_size / 1024).toFixed(1)}KB)</small>
+                                </div>
+                                <button onclick="deleteFile(${file.id})" style="background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer;">
+                                    🗑️ Delete
+                                </button>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (error) {
+                filesList.innerHTML = `<p style="text-align: center; color: #dc3545;">Error loading files</p>`;
+            }
+        }
+
+        window.deleteFile = async function(fileId) {
+            if (!confirm('Delete this file?')) return;
+
+            try {
+                const response = await fetch(`/api/files/${fileId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    libraryStatus.textContent = '✅ File deleted';
+                    libraryStatus.style.color = '#28a745';
+                    loadFiles();
+                } else {
+                    libraryStatus.textContent = '❌ Delete failed';
+                    libraryStatus.style.color = '#dc3545';
+                }
+            } catch (error) {
+                libraryStatus.textContent = `❌ Error: ${error.message}`;
+                libraryStatus.style.color = '#dc3545';
+            }
+        };
     </script>
 </body>
 </html>

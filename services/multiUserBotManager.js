@@ -1,12 +1,13 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const AIService = require('./aiService');
 const fileStorageService = require('./fileStorageService');
+const db = require('../database/db');
 
 class MultiUserBotManager {
     constructor(io, userDataStore = null) {
         this.io = io;
-        this.sessions = new Map(); // userId -> {client, config, aiService}
+        this.sessions = new Map(); // userId -> {client, config, aiService, tenantId}
         this.defaultAIService = new AIService();
         this.userDataStore = userDataStore;
     }
@@ -72,6 +73,9 @@ class MultiUserBotManager {
                 aiService = this.defaultAIService;
             }
 
+            // Extract tenant ID from session ID (format: tenant_123_timestamp)
+            const tenantId = userId.match(/tenant_(\d+)_/)?.[1];
+
             // Store session info
             const sessionInfo = {
                 client: client,
@@ -79,7 +83,8 @@ class MultiUserBotManager {
                 userId: userId,
                 qrCode: null,
                 config: userConfig,
-                aiService: aiService
+                aiService: aiService,
+                tenantId: tenantId ? parseInt(tenantId) : null
             };
 
             this.sessions.set(userId, sessionInfo);
@@ -260,9 +265,38 @@ class MultiUserBotManager {
             // Typing indicator
             await chat.sendStateTyping();
 
-            // Get user's AI service
+            // Get user's AI service and session info
             const sessionInfo = this.sessions.get(userId);
             const aiService = sessionInfo.aiService || this.defaultAIService;
+            const tenantId = sessionInfo.tenantId;
+
+            // Check if customer is requesting a file (catalog, price list, etc.)
+            const fileRequest = await this.detectFileRequest(messageBody, tenantId);
+            
+            if (fileRequest) {
+                // Customer wants a file - send it!
+                try {
+                    console.log(`📎 [${userId}] Sending file: ${fileRequest.file_label}`);
+                    
+                    const media = await MessageMedia.fromUrl(fileRequest.file_url);
+                    await chat.sendMessage(media, { caption: `Here's ${fileRequest.file_label}` });
+                    
+                    console.log(`✅ [${userId}] File sent: ${fileRequest.file_name}`);
+                    
+                    // Emit to web interface
+                    this.io.to(userId).emit('messageSent', {
+                        userId,
+                        to: senderName,
+                        message: `[Sent file: ${fileRequest.file_label}]`,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    return; // Exit - file sent, no need for AI response
+                } catch (fileError) {
+                    console.error(`❌ [${userId}] Error sending file:`, fileError.message);
+                    // Continue to AI response if file sending fails
+                }
+            }
 
             // Get AI response with file info if available
             const aiResponse = await aiService.generateResponse(messageBody || '', {
@@ -295,6 +329,62 @@ class MultiUserBotManager {
                 message: 'Error processing message',
                 error: error.message 
             });
+        }
+    }
+
+    /**
+     * Detect if customer is requesting a file
+     * @param {string} message - Customer message
+     * @param {number} tenantId - Tenant ID
+     * @returns {Promise<Object|null>} File record or null
+     */
+    async detectFileRequest(message, tenantId) {
+        if (!tenantId || !message) return null;
+
+        const lowerMessage = message.toLowerCase();
+        
+        // Common keywords for file requests (multilingual)
+        const fileKeywords = [
+            'catalog', 'catalogue', 'كتالوج', 'كاتالوج',
+            'price', 'prix', 'سعر', 'أسعار', 'ثمن',
+            'menu', 'قائمة', 'منيو',
+            'pdf', 'image', 'photo', 'صورة',
+            'send', 'show', 'أرسل', 'أعطني', 'وريني',
+            'list', 'قائمة', 'ليست'
+        ];
+
+        const hasKeyword = fileKeywords.some(keyword => lowerMessage.includes(keyword));
+        
+        if (!hasKeyword) return null;
+
+        try {
+            // Get all files for this tenant
+            const files = await db.getTenantFiles(tenantId);
+            
+            if (files.length === 0) return null;
+
+            // Try to match file label with message
+            for (const file of files) {
+                const label = file.file_label.toLowerCase();
+                if (lowerMessage.includes(label)) {
+                    return file;
+                }
+            }
+
+            // If no specific match, return first catalog/price list file
+            const catalogFile = files.find(f => 
+                f.file_label.toLowerCase().includes('catalog') || 
+                f.file_label.toLowerCase().includes('catalogue') ||
+                f.file_label.toLowerCase().includes('كتالوج') ||
+                f.file_label.toLowerCase().includes('price') ||
+                f.file_label.toLowerCase().includes('prix')
+            );
+
+            return catalogFile || files[0]; // Return first file as fallback
+
+        } catch (error) {
+            console.error('Error detecting file request:', error);
+            return null;
         }
     }
 

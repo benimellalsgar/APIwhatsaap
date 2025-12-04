@@ -192,6 +192,35 @@ class Database {
         const query = 'UPDATE sessions SET is_active = false WHERE user_id = $1';
         await this.query(query, [userId]);
     }
+
+    // Tenant files operations
+    async createTenantFile(tenantId, fileName, fileLabel, fileUrl, cloudinaryPublicId, fileType, fileSize, mimeType) {
+        const query = `
+            INSERT INTO tenant_files (tenant_id, file_name, file_label, file_url, cloudinary_public_id, file_type, file_size, mime_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *
+        `;
+        const result = await this.query(query, [tenantId, fileName, fileLabel, fileUrl, cloudinaryPublicId, fileType, fileSize, mimeType]);
+        return result.rows[0];
+    }
+
+    async getTenantFiles(tenantId) {
+        const query = 'SELECT * FROM tenant_files WHERE tenant_id = $1 ORDER BY created_at DESC';
+        const result = await this.query(query, [tenantId]);
+        return result.rows;
+    }
+
+    async getTenantFileByLabel(tenantId, fileLabel) {
+        const query = 'SELECT * FROM tenant_files WHERE tenant_id = $1 AND LOWER(file_label) = LOWER($2)';
+        const result = await this.query(query, [tenantId, fileLabel]);
+        return result.rows[0];
+    }
+
+    async deleteTenantFile(fileId, tenantId) {
+        const query = 'DELETE FROM tenant_files WHERE id = $1 AND tenant_id = $2 RETURNING *';
+        const result = await this.query(query, [fileId, tenantId]);
+        return result.rows[0];
+    }
 }
 
 module.exports = new Database();
