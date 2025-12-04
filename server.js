@@ -49,6 +49,8 @@ app.post('/api/auth/register', async (req, res) => {
     try {
         const { tenantName, email, password, fullName } = req.body;
         
+        console.log('📝 Registration attempt:', { tenantName, email, fullName });
+        
         if (!tenantName || !email || !password || !fullName) {
             return res.status(400).json({ error: 'All fields are required' });
         }
@@ -56,6 +58,7 @@ app.post('/api/auth/register', async (req, res) => {
         const result = await authService.register(tenantName, email, password, fullName);
         res.json({ message: 'Registration successful', tenant: result.tenant, user: result.user });
     } catch (error) {
+        console.error('❌ Registration error:', error);
         res.status(400).json({ error: error.message });
     }
 });

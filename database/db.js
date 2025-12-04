@@ -4,6 +4,11 @@ const path = require('path');
 
 class Database {
     constructor() {
+        if (!process.env.DATABASE_URL) {
+            console.error('❌ DATABASE_URL is not set!');
+            console.log('💡 Please add PostgreSQL database in Railway');
+        }
+        
         this.pool = new Pool({
             connectionString: process.env.DATABASE_URL,
             ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
