@@ -164,6 +164,32 @@ class FileStorageService {
             console.error('Error cleaning up files:', error);
         }
     }
+
+    /**
+     * Start automatic cleanup job (runs every hour)
+     */
+    startCleanupJob() {
+        // Run cleanup immediately
+        this.cleanupOldFiles();
+        
+        // Schedule cleanup every hour
+        this.cleanupInterval = setInterval(() => {
+            this.cleanupOldFiles();
+        }, 60 * 60 * 1000); // 1 hour
+        
+        console.log('🗑️ File cleanup job started (runs every hour)');
+    }
+
+    /**
+     * Stop automatic cleanup job
+     */
+    stopCleanupJob() {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+            this.cleanupInterval = null;
+            console.log('🛑 File cleanup job stopped');
+        }
+    }
 }
 
 module.exports = new FileStorageService();
