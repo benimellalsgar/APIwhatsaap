@@ -344,9 +344,7 @@
 
         let currentSessionId = null;
         const socket = io();
-        const userIdInput = document.getElementById('userIdInput');
         const botArea = document.getElementById('botArea');
-        const enterBtn = document.getElementById('enterBtn');
         const displayUserId = document.getElementById('displayUserId');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -361,7 +359,6 @@
 
         // Show user info and skip to bot area
         displayUserId.textContent = tenant.name || user.email;
-        userIdInput.classList.add('hidden');
         botArea.classList.remove('hidden');
 
         // Check for existing sessions
