@@ -46,6 +46,24 @@ app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok' });
 });
 
+// Migration endpoint (run once after deployment)
+app.post('/api/migrate', async (req, res) => {
+    try {
+        const fs = require('fs').promises;
+        const path = require('path');
+        
+        const migrationPath = path.join(__dirname, 'database', 'migrate.sql');
+        const migration = await fs.readFile(migrationPath, 'utf8');
+        
+        await db.query(migration);
+        
+        res.json({ message: 'Migration completed successfully' });
+    } catch (error) {
+        console.error('Migration error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Detailed status endpoint
 app.get('/status', (req, res) => {
     res.status(200).json({ 
@@ -54,6 +72,33 @@ app.get('/status', (req, res) => {
         sessions: botManager.getAllSessions().length,
         memory: process.memoryUsage()
     });
+});
+
+// Database migration endpoint (run this after deployment)
+app.post('/api/admin/migrate', async (req, res) => {
+    try {
+        const { adminKey } = req.body;
+        
+        // Verify admin key
+        if (adminKey !== process.env.ADMIN_KEY) {
+            return res.status(403).json({ error: 'Unauthorized - Invalid admin key' });
+        }
+        
+        console.log('🔄 Running database migrations...');
+        const result = await db.initialize();
+        
+        if (result) {
+            res.json({ 
+                message: 'Database migrations completed successfully',
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            res.status(500).json({ error: 'Migration failed - check server logs' });
+        }
+    } catch (error) {
+        console.error('❌ Migration error:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Auth routes
@@ -312,16 +357,32 @@ app.post('/api/start', authenticate, async (req, res) => {
     try {
         const { config } = req.body;
         
+        console.log('🚀 Starting session for tenant:', req.tenant.id, 'with config:', config);
+        
         // Update tenant with owner WhatsApp number if provided
         if (config?.ownerWhatsApp) {
-            await db.updateTenant(req.tenant.id, {
-                owner_whatsapp_number: config.ownerWhatsApp
-            });
+            console.log('📱 Updating owner WhatsApp number:', config.ownerWhatsApp);
+            try {
+                await db.updateTenant(req.tenant.id, {
+                    owner_whatsapp_number: config.ownerWhatsApp
+                });
+            } catch (dbError) {
+                console.error('❌ Database error updating tenant:', dbError);
+                // Check if it's a column missing error
+                if (dbError.message.includes('column') && dbError.message.includes('owner_whatsapp_number')) {
+                    return res.status(500).json({ 
+                        error: 'Database schema outdated. Please contact admin to run migrations.',
+                        details: 'owner_whatsapp_number column missing'
+                    });
+                }
+                throw dbError;
+            }
         }
         
         // Generate unique session ID for this tenant
         const sessionId = `tenant_${req.tenant.id}_${Date.now()}`;
         
+        console.log('💾 Creating WhatsApp connection with sessionId:', sessionId);
         // Save WhatsApp connection to database
         await db.createWhatsAppConnection(
             req.tenant.id,
@@ -330,15 +391,21 @@ app.post('/api/start', authenticate, async (req, res) => {
             config?.apiKey || null
         );
         
+        console.log('🤖 Starting bot session...');
         // Start bot session
         await botManager.createSession(sessionId, config);
         
+        console.log('✅ Session started successfully:', sessionId);
         res.json({ 
             message: 'Session started. Please scan QR code.', 
             sessionId 
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('❌ Error in /api/start:', error);
+        res.status(500).json({ 
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 });
 
