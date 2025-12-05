@@ -31,6 +31,16 @@ class Database {
             await client.query(schema);
             console.log('✅ Database schema initialized');
             
+            // Run migrations
+            try {
+                const migrationPath = path.join(__dirname, 'migrate.sql');
+                const migration = await fs.readFile(migrationPath, 'utf8');
+                await client.query(migration);
+                console.log('✅ Database migrations applied');
+            } catch (migrationError) {
+                console.log('⚠️ Migration already applied or not needed');
+            }
+            
             client.release();
             return true;
         } catch (error) {
