@@ -435,6 +435,17 @@ class MultiUserBotManager {
             const { state, orderId } = orderState;
             
             if (state === 'awaiting_payment') {
+                const messageText = (message.body || '').toLowerCase();
+                
+                // Check for payment confirmation text (without image)
+                const paymentConfirmWords = [
+                    'fait', 'virement', 'payé', 'envoyé', 'transféré', 
+                    'done', 'paid', 'sent', 'transferred',
+                    'تم', 'دفعت', 'حولت'
+                ];
+                
+                const hasPaymentConfirmation = paymentConfirmWords.some(word => messageText.includes(word));
+                
                 // Check if customer sent payment proof (image)
                 if (message.hasMedia) {
                     const media = await message.downloadMedia();
@@ -456,7 +467,7 @@ class MultiUserBotManager {
                         });
                         
                         // Now ask for customer info
-                        await chat.sendMessage('✅ Payment proof received! Now please provide:\n\n1. Your full name\n2. Delivery address\n3. Email (optional)\n\nYou can send all info in one message.');
+                        await chat.sendMessage('✅ Preuve de paiement reçue! Maintenant, merci de fournir:\n\n1. Votre nom complet\n2. Adresse de livraison\n3. Email (optionnel)\n\nVous pouvez envoyer toutes les infos en un seul message.');
                         
                         orderState.state = 'awaiting_info';
                         orderState.collectedInfo = {};
@@ -465,15 +476,25 @@ class MultiUserBotManager {
                         console.log(`✅ [${userId}] Payment proof received for order ${orderId}`);
                         return true;
                     }
+                } else if (hasPaymentConfirmation) {
+                    // Customer says they paid but no image - ask for proof
+                    await chat.sendMessage('✅ Parfait! Pour finaliser, merci d\'envoyer une capture d\'écran ou photo du reçu de virement (confirmation bancaire).');
+                    return true;
                 }
                 
-                await chat.sendMessage('Please send a screenshot or photo of your payment proof.');
+                await chat.sendMessage('Merci d\'envoyer une capture d\'écran ou photo de votre preuve de paiement (reçu de virement).');
                 return true;
             }
             
             if (state === 'awaiting_info') {
                 // Customer is sending their info (name, address, email)
-                const messageText = message.body;
+                const messageText = message.body || '';
+                
+                // Check if message has enough info (at least name-like content)
+                if (messageText.trim().length < 5) {
+                    await chat.sendMessage('Merci de fournir vos informations complètes:\n1. Nom complet\n2. Adresse de livraison\n3. Email (optionnel)');
+                    return true;
+                }
                 
                 // Simple parsing - assume customer sends all info in one message
                 orderState.collectedInfo.rawText = messageText;
@@ -484,24 +505,40 @@ class MultiUserBotManager {
                     orderState.collectedInfo.email = emailMatch[0];
                 }
                 
+                // Extract name (first line or first words)
+                const lines = messageText.split('\n').filter(l => l.trim());
+                const customerName = lines[0] || messageText.split(' ').slice(0, 3).join(' ');
+                
                 // Save to database
                 await db.updateOrder(orderId, {
-                    customer_name: messageText.split('\n')[0] || messageText.substring(0, 100),
-                    customer_address: messageText,
+                    customer_name: customerName.substring(0, 255),
+                    customer_address: messageText.substring(0, 1000),
                     customer_email: orderState.collectedInfo.email || null
                 });
                 
+                console.log(`📝 [${userId}] Customer info collected for order ${orderId}`);
+                
                 // Forward to owner
-                await this.forwardOrderToOwner(tenantId, orderId, userId);
+                try {
+                    await this.forwardOrderToOwner(tenantId, orderId, userId, customerPhone);
+                    
+                    // Thank customer
+                    await chat.sendMessage('✅ Merci! Votre commande a été reçue et sera traitée rapidement. Nous vous contacterons bientôt!');
+                    
+                    // Complete order
+                    await db.completeOrder(orderId);
+                    this.orderStates.delete(`${tenantId}_${customerPhone}`);
+                    
+                    console.log(`🎉 [${userId}] Order ${orderId} completed and forwarded to owner`);
+                } catch (forwardError) {
+                    console.error(`❌ [${userId}] Error forwarding order:`, forwardError);
+                    await chat.sendMessage('✅ Votre commande est enregistrée! Le propriétaire sera notifié.');
+                    
+                    // Still complete the order even if forwarding fails
+                    await db.completeOrder(orderId);
+                    this.orderStates.delete(`${tenantId}_${customerPhone}`);
+                }
                 
-                // Thank customer
-                await chat.sendMessage('✅ Thank you! Your order has been received and will be processed shortly. We\'ll contact you soon!');
-                
-                // Complete order
-                await db.completeOrder(orderId);
-                this.orderStates.delete(`${tenantId}_${customerPhone}`);
-                
-                console.log(`🎉 [${userId}] Order ${orderId} completed and forwarded to owner`);
                 return true;
             }
             
@@ -517,7 +554,7 @@ class MultiUserBotManager {
     /**
      * Forward complete order to owner's WhatsApp
      */
-    async forwardOrderToOwner(tenantId, orderId, userId) {
+    async forwardOrderToOwner(tenantId, orderId, userId, customerPhone) {
         try {
             // Get tenant and order info
             const tenant = await db.getTenantById(tenantId);
@@ -526,14 +563,14 @@ class MultiUserBotManager {
             
             if (!tenant.owner_whatsapp_number) {
                 console.warn(`⚠️ [${userId}] No owner WhatsApp number set for tenant ${tenantId}`);
-                return;
+                throw new Error('Owner WhatsApp number not configured');
             }
             
             // Get the bot client
             const sessionInfo = this.sessions.get(userId);
             if (!sessionInfo || !sessionInfo.client) {
                 console.error('Session not found');
-                return;
+                throw new Error('WhatsApp session not found');
             }
             
             const client = sessionInfo.client;
@@ -544,13 +581,15 @@ class MultiUserBotManager {
                 ownerNumber = `${ownerNumber}@c.us`;
             }
             
+            console.log(`📤 [${userId}] Forwarding order ${orderId} to owner: ${ownerNumber}`);
+            
             // Build order summary message
-            let orderMessage = `🛒 *NEW ORDER RECEIVED*\n\n`;
-            orderMessage += `📱 Customer: ${order.customer_phone}\n`;
-            orderMessage += `👤 Name: ${order.customer_name || 'Not provided'}\n`;
-            orderMessage += `📧 Email: ${order.customer_email || 'Not provided'}\n`;
-            orderMessage += `📍 Address:\n${order.customer_address || 'Not provided'}\n\n`;
-            orderMessage += `📝 Order Details:\n${order.order_details || 'See conversation'}\n\n`;
+            let orderMessage = `🛒 *NOUVELLE COMMANDE REÇUE*\n\n`;
+            orderMessage += `📱 Client: ${customerPhone.replace('@c.us', '')}\n`;
+            orderMessage += `👤 Nom: ${order.customer_name || 'Non fourni'}\n`;
+            orderMessage += `📧 Email: ${order.customer_email || 'Non fourni'}\n`;
+            orderMessage += `📍 Adresse:\n${order.customer_address || 'Non fournie'}\n\n`;
+            orderMessage += `📝 Détails commande:\n${order.order_details || 'Voir conversation'}\n\n`;
             orderMessage += `📅 Order Date: ${order.created_at}\n`;
             orderMessage += `🆔 Order ID: #${order.id}`;
             
