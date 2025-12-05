@@ -10,6 +10,7 @@ class MultiUserBotManager {
         this.sessions = new Map(); // userId -> {client, config, aiService, tenantId}
         this.defaultAIService = new AIService();
         this.userDataStore = userDataStore;
+        this.orderStates = new Map(); // customerPhone -> {orderId, state, data}
     }
 
     // Create new session for a user
@@ -218,8 +219,23 @@ class MultiUserBotManager {
             const chat = await message.getChat();
             const messageBody = message.body;
             const senderName = message._data.notifyName || message.from.split('@')[0];
+            const customerPhone = message.from;
 
             console.log(`\n📩 [${userId}] From ${senderName}: ${messageBody}`);
+
+            // Get session info
+            const sessionInfo = this.sessions.get(userId);
+            const aiService = sessionInfo.aiService || this.defaultAIService;
+            const tenantId = sessionInfo.tenantId;
+
+            // Check if customer has an active order in progress
+            const orderState = this.orderStates.get(`${tenantId}_${customerPhone}`);
+            
+            if (orderState) {
+                // Customer is in order flow - handle state machine
+                const result = await this.handleOrderFlow(orderState, message, chat, tenantId, customerPhone, userId);
+                if (result) return; // Order flow handled, exit
+            }
 
             // Check if message has media
             let fileInfo = null;
@@ -265,11 +281,6 @@ class MultiUserBotManager {
             // Typing indicator
             await chat.sendStateTyping();
 
-            // Get user's AI service and session info
-            const sessionInfo = this.sessions.get(userId);
-            const aiService = sessionInfo.aiService || this.defaultAIService;
-            const tenantId = sessionInfo.tenantId;
-
             // Check if customer is requesting a file (catalog, price list, etc.)
             const fileRequest = await this.detectFileRequest(messageBody, tenantId);
             
@@ -305,7 +316,14 @@ class MultiUserBotManager {
                 fileInfo: fileInfo
             });
 
-            // Send response
+            // Check if customer wants to purchase (confirmation keywords)
+            if (this.detectPurchaseIntent(messageBody)) {
+                // Start order flow
+                await this.initiateOrderFlow(tenantId, customerPhone, messageBody, chat, userId);
+                return;
+            }
+
+            // Send normal AI response
             await message.reply(aiResponse);
             console.log(`✅ [${userId}] Replied: ${aiResponse}`);
 
@@ -329,6 +347,235 @@ class MultiUserBotManager {
                 message: 'Error processing message',
                 error: error.message 
             });
+        }
+    }
+
+    /**
+     * Detect if customer wants to make a purchase
+     */
+    detectPurchaseIntent(message) {
+        if (!message) return false;
+        const lower = message.toLowerCase();
+        
+        // Purchase keywords in multiple languages
+        const purchaseKeywords = [
+            // English
+            'buy', 'purchase', 'order', 'i want', 'i\'ll take', 'confirm',
+            // French
+            'acheter', 'commander', 'je veux', 'je prends', 'confirmer',
+            // Arabic
+            'شراء', 'شراه', 'طلب', 'بغيت', 'خذيت', 'تأكيد',
+            // Darija
+            'نشري', 'نآخذ', 'واخا', 'سير'
+        ];
+        
+        return purchaseKeywords.some(keyword => lower.includes(keyword));
+    }
+
+    /**
+     * Initiate order flow - send payment screenshot
+     */
+    async initiateOrderFlow(tenantId, customerPhone, orderDetails, chat, userId) {
+        try {
+            // Create order in database
+            const order = await db.createOrder(tenantId, customerPhone, orderDetails);
+            
+            // Get payment screenshot from file library
+            const paymentFile = await db.getTenantFileByLabel(tenantId, 'payment');
+            
+            if (paymentFile) {
+                // Send payment screenshot
+                const media = await MessageMedia.fromUrl(paymentFile.file_url);
+                await chat.sendMessage(media, { 
+                    caption: '💳 Perfect! Here\'s our payment information. Please send your payment proof after completing the transaction.' 
+                });
+                
+                // Set order state to awaiting payment
+                this.orderStates.set(`${tenantId}_${customerPhone}`, {
+                    orderId: order.id,
+                    state: 'awaiting_payment',
+                    orderDetails: orderDetails
+                });
+                
+                await db.updateOrder(order.id, { order_state: 'awaiting_payment' });
+                
+                console.log(`💳 [${userId}] Order flow started for ${customerPhone}`);
+            } else {
+                // No payment screenshot - ask for info directly
+                await chat.sendMessage('Great! To complete your order, please provide:\n\n1. Your full name\n2. Delivery address\n3. Email (optional)');
+                
+                this.orderStates.set(`${tenantId}_${customerPhone}`, {
+                    orderId: order.id,
+                    state: 'awaiting_info',
+                    orderDetails: orderDetails,
+                    collectedInfo: {}
+                });
+                
+                await db.updateOrder(order.id, { order_state: 'awaiting_info' });
+            }
+            
+            this.io.to(userId).emit('messageSent', {
+                userId,
+                to: customerPhone,
+                message: '[Order flow initiated]',
+                timestamp: new Date().toISOString()
+            });
+            
+        } catch (error) {
+            console.error('Error initiating order flow:', error);
+            await chat.sendMessage('Sorry, I couldn\'t process your order. Please try again later.');
+        }
+    }
+
+    /**
+     * Handle order flow state machine
+     */
+    async handleOrderFlow(orderState, message, chat, tenantId, customerPhone, userId) {
+        try {
+            const { state, orderId } = orderState;
+            
+            if (state === 'awaiting_payment') {
+                // Check if customer sent payment proof (image)
+                if (message.hasMedia) {
+                    const media = await message.downloadMedia();
+                    
+                    if (media && media.mimetype.startsWith('image/')) {
+                        // Upload payment proof to Cloudinary
+                        const cloudinaryService = require('./cloudinaryService');
+                        const uploadResult = await cloudinaryService.uploadFile(
+                            Buffer.from(media.data, 'base64'),
+                            `tenant_${tenantId}`,
+                            `payment_proof_${orderId}_${Date.now()}.jpg`,
+                            'image'
+                        );
+                        
+                        // Update order with payment proof
+                        await db.updateOrder(orderId, {
+                            payment_proof_url: uploadResult.url,
+                            payment_proof_cloudinary_id: uploadResult.publicId
+                        });
+                        
+                        // Now ask for customer info
+                        await chat.sendMessage('✅ Payment proof received! Now please provide:\n\n1. Your full name\n2. Delivery address\n3. Email (optional)\n\nYou can send all info in one message.');
+                        
+                        orderState.state = 'awaiting_info';
+                        orderState.collectedInfo = {};
+                        await db.updateOrder(orderId, { order_state: 'awaiting_info' });
+                        
+                        console.log(`✅ [${userId}] Payment proof received for order ${orderId}`);
+                        return true;
+                    }
+                }
+                
+                await chat.sendMessage('Please send a screenshot or photo of your payment proof.');
+                return true;
+            }
+            
+            if (state === 'awaiting_info') {
+                // Customer is sending their info (name, address, email)
+                const messageText = message.body;
+                
+                // Simple parsing - assume customer sends all info in one message
+                orderState.collectedInfo.rawText = messageText;
+                
+                // Try to extract email (basic pattern)
+                const emailMatch = messageText.match(/[\w.-]+@[\w.-]+\.\w+/);
+                if (emailMatch) {
+                    orderState.collectedInfo.email = emailMatch[0];
+                }
+                
+                // Save to database
+                await db.updateOrder(orderId, {
+                    customer_name: messageText.split('\n')[0] || messageText.substring(0, 100),
+                    customer_address: messageText,
+                    customer_email: orderState.collectedInfo.email || null
+                });
+                
+                // Forward to owner
+                await this.forwardOrderToOwner(tenantId, orderId, userId);
+                
+                // Thank customer
+                await chat.sendMessage('✅ Thank you! Your order has been received and will be processed shortly. We\'ll contact you soon!');
+                
+                // Complete order
+                await db.completeOrder(orderId);
+                this.orderStates.delete(`${tenantId}_${customerPhone}`);
+                
+                console.log(`🎉 [${userId}] Order ${orderId} completed and forwarded to owner`);
+                return true;
+            }
+            
+        } catch (error) {
+            console.error('Error in order flow:', error);
+            await chat.sendMessage('Sorry, there was an error processing your order. Please contact support.');
+            this.orderStates.delete(`${tenantId}_${customerPhone}`);
+        }
+        
+        return false;
+    }
+
+    /**
+     * Forward complete order to owner's WhatsApp
+     */
+    async forwardOrderToOwner(tenantId, orderId, userId) {
+        try {
+            // Get tenant and order info
+            const tenant = await db.getTenantById(tenantId);
+            const orders = await db.query('SELECT * FROM customer_orders WHERE id = $1', [orderId]);
+            const order = orders.rows[0];
+            
+            if (!tenant.owner_whatsapp_number) {
+                console.warn(`⚠️ [${userId}] No owner WhatsApp number set for tenant ${tenantId}`);
+                return;
+            }
+            
+            // Get the bot client
+            const sessionInfo = this.sessions.get(userId);
+            if (!sessionInfo || !sessionInfo.client) {
+                console.error('Session not found');
+                return;
+            }
+            
+            const client = sessionInfo.client;
+            
+            // Format owner number correctly (should already be in format: 212600000000@c.us)
+            let ownerNumber = tenant.owner_whatsapp_number;
+            if (!ownerNumber.includes('@')) {
+                ownerNumber = `${ownerNumber}@c.us`;
+            }
+            
+            // Build order summary message
+            let orderMessage = `🛒 *NEW ORDER RECEIVED*\n\n`;
+            orderMessage += `📱 Customer: ${order.customer_phone}\n`;
+            orderMessage += `👤 Name: ${order.customer_name || 'Not provided'}\n`;
+            orderMessage += `📧 Email: ${order.customer_email || 'Not provided'}\n`;
+            orderMessage += `📍 Address:\n${order.customer_address || 'Not provided'}\n\n`;
+            orderMessage += `📝 Order Details:\n${order.order_details || 'See conversation'}\n\n`;
+            orderMessage += `📅 Order Date: ${order.created_at}\n`;
+            orderMessage += `🆔 Order ID: #${order.id}`;
+            
+            // Send message to owner
+            await client.sendMessage(ownerNumber, orderMessage);
+            console.log(`✅ [${userId}] Order details sent to owner: ${ownerNumber}`);
+            
+            // Send payment proof if available
+            if (order.payment_proof_url) {
+                const media = await MessageMedia.fromUrl(order.payment_proof_url);
+                await client.sendMessage(ownerNumber, media, { caption: '💳 Payment Proof' });
+                console.log(`✅ [${userId}] Payment proof sent to owner`);
+            }
+            
+            // Emit to web interface
+            this.io.to(userId).emit('orderForwarded', {
+                userId,
+                orderId: order.id,
+                ownerNumber: tenant.owner_whatsapp_number,
+                timestamp: new Date().toISOString()
+            });
+            
+        } catch (error) {
+            console.error('Error forwarding order to owner:', error);
+            throw error;
         }
     }
 

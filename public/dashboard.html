@@ -273,11 +273,24 @@
                     border-radius: 10px;
                     margin: 10px 0;
                 ">
+                
+                <input type="text" id="ownerWhatsApp" placeholder="Owner WhatsApp Number (e.g., 212600000000)" style="
+                    width: 100%;
+                    padding: 12px;
+                    font-size: 0.9em;
+                    border: 2px solid #ddd;
+                    border-radius: 10px;
+                    margin: 10px 0;
+                ">
+                <p style="font-size: 0.85em; color: #666; margin-top: -5px;">⚠️ Format: Country code + number (no spaces or +). Orders will be forwarded here.</p>
             </div>
 
             <div id="fileLibraryArea" class="instructions" style="margin-bottom: 20px;">
                 <h3>📚 File Library (Send to Customers)</h3>
                 <p>Upload catalog, price list, images - bot will send them when customers ask</p>
+                <p style="background: #e3f2fd; padding: 10px; border-radius: 5px; font-size: 0.85em; margin: 10px 0;">
+                    💡 <strong>Tip:</strong> Upload your payment screenshot with label "payment" - bot will automatically send it when customers confirm purchase!
+                </p>
                 
                 <div style="display: flex; gap: 10px; margin-bottom: 10px;">
                     <input type="file" id="libraryFileInput" accept="image/*,application/pdf,audio/*,video/*" style="
@@ -482,9 +495,15 @@
         startBtn.addEventListener('click', async () => {
             const businessDataValue = businessData.value.trim();
             const apiKeyValue = apiKey.value.trim();
+            const ownerWhatsAppValue = document.getElementById('ownerWhatsApp').value.trim();
             
             if (!businessDataValue) {
                 showAlert('Please enter your business data first', 'error');
+                return;
+            }
+            
+            if (!ownerWhatsAppValue) {
+                showAlert('Please enter owner WhatsApp number to receive orders', 'error');
                 return;
             }
             
@@ -498,7 +517,8 @@
                     body: JSON.stringify({ 
                         config: {
                             businessData: businessDataValue,
-                            apiKey: apiKeyValue || null
+                            apiKey: apiKeyValue || null,
+                            ownerWhatsApp: ownerWhatsAppValue
                         }
                     })
                 });

@@ -312,6 +312,13 @@ app.post('/api/start', authenticate, async (req, res) => {
     try {
         const { config } = req.body;
         
+        // Update tenant with owner WhatsApp number if provided
+        if (config?.ownerWhatsApp) {
+            await db.updateTenant(req.tenant.id, {
+                owner_whatsapp_number: config.ownerWhatsApp
+            });
+        }
+        
         // Generate unique session ID for this tenant
         const sessionId = `tenant_${req.tenant.id}_${Date.now()}`;
         

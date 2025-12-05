@@ -84,6 +84,29 @@ class Database {
         return result.rows[0];
     }
 
+    async updateTenant(tenantId, updates) {
+        const fields = [];
+        const values = [];
+        let paramCount = 1;
+
+        Object.keys(updates).forEach(key => {
+            fields.push(`${key} = $${paramCount}`);
+            values.push(updates[key]);
+            paramCount++;
+        });
+
+        values.push(tenantId);
+        const query = `
+            UPDATE tenants 
+            SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $${paramCount}
+            RETURNING *
+        `;
+        
+        const result = await this.query(query, values);
+        return result.rows[0];
+    }
+
     // User operations
     async createUser(tenantId, email, passwordHash, fullName, role = 'owner') {
         const query = `
@@ -219,6 +242,63 @@ class Database {
     async deleteTenantFile(fileId, tenantId) {
         const query = 'DELETE FROM tenant_files WHERE id = $1 AND tenant_id = $2 RETURNING *';
         const result = await this.query(query, [fileId, tenantId]);
+        return result.rows[0];
+    }
+
+    // Customer order operations
+    async createOrder(tenantId, customerPhone, orderDetails = null) {
+        const query = `
+            INSERT INTO customer_orders (tenant_id, customer_phone, order_details, order_state)
+            VALUES ($1, $2, $3, 'initiated')
+            RETURNING *
+        `;
+        const result = await this.query(query, [tenantId, customerPhone, orderDetails]);
+        return result.rows[0];
+    }
+
+    async getActiveOrder(tenantId, customerPhone) {
+        const query = `
+            SELECT * FROM customer_orders 
+            WHERE tenant_id = $1 AND customer_phone = $2 
+            AND order_state IN ('initiated', 'awaiting_payment', 'awaiting_info')
+            ORDER BY created_at DESC
+            LIMIT 1
+        `;
+        const result = await this.query(query, [tenantId, customerPhone]);
+        return result.rows[0];
+    }
+
+    async updateOrder(orderId, updates) {
+        const fields = [];
+        const values = [];
+        let paramCount = 1;
+
+        Object.keys(updates).forEach(key => {
+            fields.push(`${key} = $${paramCount}`);
+            values.push(updates[key]);
+            paramCount++;
+        });
+
+        values.push(orderId);
+        const query = `
+            UPDATE customer_orders 
+            SET ${fields.join(', ')}
+            WHERE id = $${paramCount}
+            RETURNING *
+        `;
+        
+        const result = await this.query(query, values);
+        return result.rows[0];
+    }
+
+    async completeOrder(orderId) {
+        const query = `
+            UPDATE customer_orders 
+            SET order_state = 'completed', completed_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING *
+        `;
+        const result = await this.query(query, [orderId]);
         return result.rows[0];
     }
 }

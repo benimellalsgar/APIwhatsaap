@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
+    owner_whatsapp_number VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     is_active BOOLEAN DEFAULT true,
@@ -52,6 +53,22 @@ CREATE TABLE IF NOT EXISTS tenant_files (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Create customer_orders table for payment flow
+CREATE TABLE IF NOT EXISTS customer_orders (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+    customer_phone VARCHAR(50) NOT NULL,
+    customer_name VARCHAR(255),
+    customer_address TEXT,
+    customer_email VARCHAR(255),
+    order_details TEXT,
+    payment_proof_url TEXT,
+    payment_proof_cloudinary_id VARCHAR(255),
+    order_state VARCHAR(50) DEFAULT 'initiated',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -59,6 +76,8 @@ CREATE INDEX IF NOT EXISTS idx_whatsapp_tenant_id ON whatsapp_connections(tenant
 CREATE INDEX IF NOT EXISTS idx_whatsapp_session_id ON whatsapp_connections(session_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_files_tenant_id ON tenant_files(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_files_label ON tenant_files(file_label);
+CREATE INDEX IF NOT EXISTS idx_customer_orders_tenant_id ON customer_orders(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_customer_orders_state ON customer_orders(order_state);
 
 -- Create sessions table for tracking active sessions
 CREATE TABLE IF NOT EXISTS sessions (
