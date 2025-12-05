@@ -68,7 +68,12 @@ app.post('/api/auth/register', async (req, res) => {
         }
 
         const result = await authService.register(tenantName, email, password, fullName);
-        res.json({ message: 'Registration successful', tenant: result.tenant, user: result.user });
+        res.json({ 
+            message: 'Registration successful! Your account is pending admin approval. You will be notified when approved.', 
+            needsApproval: true,
+            tenant: result.tenant, 
+            user: result.user 
+        });
     } catch (error) {
         console.error('❌ Registration error:', error);
         res.status(400).json({ error: error.message });
@@ -109,6 +114,54 @@ app.get('/api/auth/me', authenticate, (req, res) => {
     });
 });
 
+// Admin routes - Get pending users
+app.get('/api/admin/pending-users', async (req, res) => {
+    try {
+        // Simple admin check - you can add proper admin authentication later
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        const pendingUsers = await authService.getPendingUsers();
+        res.json({ users: pendingUsers });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin routes - Approve user
+app.post('/api/admin/approve-user/:userId', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        const { userId } = req.params;
+        await authService.approveUser(parseInt(userId));
+        res.json({ message: 'User approved successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin routes - Reject user
+app.delete('/api/admin/reject-user/:userId', async (req, res) => {
+    try {
+        const adminKey = req.headers['x-admin-key'];
+        if (adminKey !== process.env.ADMIN_KEY) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        const { userId } = req.params;
+        await authService.rejectUser(parseInt(userId));
+        res.json({ message: 'User rejected successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -120,6 +173,10 @@ app.get('/login', (req, res) => {
 
 app.get('/dashboard', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
+
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 // Get all active sessions (protected)

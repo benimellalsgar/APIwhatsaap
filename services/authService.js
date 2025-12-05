@@ -24,7 +24,7 @@ class AuthService {
             // Create tenant
             const tenant = await db.createTenant(tenantName, email);
 
-            // Create owner user
+            // Create owner user (inactive by default - needs admin approval)
             const user = await db.createUser(
                 tenant.id,
                 email,
@@ -33,7 +33,11 @@ class AuthService {
                 'owner'
             );
 
-            console.log(`✅ New tenant registered: ${tenantName} (${email})`);
+            // Set tenant as inactive (needs approval)
+            await db.query('UPDATE tenants SET is_active = false WHERE id = $1', [tenant.id]);
+            await db.query('UPDATE users SET is_active = false WHERE id = $1', [user.id]);
+
+            console.log(`✅ New tenant registered (pending approval): ${tenantName} (${email})`);
 
             return {
                 tenant,
@@ -41,7 +45,8 @@ class AuthService {
                     id: user.id,
                     email: user.email,
                     fullName: user.full_name,
-                    role: user.role
+                    role: user.role,
+                    needsApproval: true
                 }
             };
         } catch (error) {
@@ -55,34 +60,40 @@ class AuthService {
      */
     async login(email, password, ipAddress, userAgent) {
         try {
-            // Get user
-            const user = await db.getUserByEmail(email);
-            if (!user) {
+            // Get user (include inactive users for better error message)
+            const user = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+            if (!user.rows[0]) {
                 throw new Error('Invalid email or password');
+            }
+            const userRecord = user.rows[0];
+
+            // Check if user is active (approved)
+            if (!userRecord.is_active) {
+                throw new Error('Your account is pending approval. Please wait for admin activation.');
             }
 
             // Verify password
-            const validPassword = await bcrypt.compare(password, user.password_hash);
+            const validPassword = await bcrypt.compare(password, userRecord.password_hash);
             if (!validPassword) {
                 throw new Error('Invalid email or password');
             }
 
             // Get tenant
-            const tenant = await db.getTenantById(user.tenant_id);
+            const tenant = await db.getTenantById(userRecord.tenant_id);
             if (!tenant || !tenant.is_active) {
-                throw new Error('Account is inactive');
+                throw new Error('Your account is pending approval. Please wait for admin activation.');
             }
 
             // Invalidate old sessions (single session enforcement)
-            await db.invalidateAllUserSessions(user.id);
+            await db.invalidateAllUserSessions(userRecord.id);
 
             // Create JWT token
             const token = jwt.sign(
                 {
-                    userId: user.id,
-                    tenantId: user.tenant_id,
-                    email: user.email,
-                    role: user.role
+                    userId: userRecord.id,
+                    tenantId: userRecord.tenant_id,
+                    email: userRecord.email,
+                    role: userRecord.role
                 },
                 JWT_SECRET,
                 { expiresIn: JWT_EXPIRES_IN }
@@ -95,21 +106,21 @@ class AuthService {
             const expiresAt = new Date();
             expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
             
-            await db.createSession(user.id, tokenHash, ipAddress, userAgent, expiresAt);
+            await db.createSession(userRecord.id, tokenHash, ipAddress, userAgent, expiresAt);
 
             // Update last login
-            await db.updateUserLastLogin(user.id);
+            await db.updateUserLastLogin(userRecord.id);
 
             console.log(`✅ User logged in: ${email}`);
 
             return {
                 token,
                 user: {
-                    id: user.id,
-                    email: user.email,
-                    fullName: user.full_name,
-                    role: user.role,
-                    tenantId: user.tenant_id
+                    id: userRecord.id,
+                    email: userRecord.email,
+                    fullName: userRecord.full_name,
+                    role: userRecord.role,
+                    tenantId: userRecord.tenant_id
                 },
                 tenant: {
                     id: tenant.id,
@@ -181,6 +192,70 @@ class AuthService {
             console.log('✅ User logged out');
         } catch (error) {
             console.error('Logout error:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get all pending users (admin only)
+     */
+    async getPendingUsers() {
+        try {
+            const result = await db.query(`
+                SELECT u.id, u.email, u.full_name, u.created_at, t.name as tenant_name, t.id as tenant_id
+                FROM users u
+                JOIN tenants t ON u.tenant_id = t.id
+                WHERE u.is_active = false
+                ORDER BY u.created_at DESC
+            `);
+            return result.rows;
+        } catch (error) {
+            console.error('Error fetching pending users:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Approve user (admin only)
+     */
+    async approveUser(userId) {
+        try {
+            // Activate user
+            await db.query('UPDATE users SET is_active = true WHERE id = $1', [userId]);
+            
+            // Activate tenant
+            const user = await db.getUserById(userId);
+            await db.query('UPDATE tenants SET is_active = true WHERE id = $1', [user.tenant_id]);
+            
+            console.log(`✅ User approved: ${user.email}`);
+            return true;
+        } catch (error) {
+            console.error('Error approving user:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Reject/Delete user (admin only)
+     */
+    async rejectUser(userId) {
+        try {
+            const user = await db.getUserById(userId);
+            const tenantId = user.tenant_id;
+            
+            // Delete user
+            await db.query('DELETE FROM users WHERE id = $1', [userId]);
+            
+            // Delete tenant if no other users
+            const otherUsers = await db.query('SELECT id FROM users WHERE tenant_id = $1', [tenantId]);
+            if (otherUsers.rows.length === 0) {
+                await db.query('DELETE FROM tenants WHERE id = $1', [tenantId]);
+            }
+            
+            console.log(`❌ User rejected: ${user.email}`);
+            return true;
+        } catch (error) {
+            console.error('Error rejecting user:', error);
             throw error;
         }
     }

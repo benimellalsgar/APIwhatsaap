@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - User Approvals</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .admin-key-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            font-size: 1em;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 1em;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #25D366;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1fa855;
+        }
+
+        .btn-approve {
+            background: #28a745;
+            color: white;
+            margin-right: 10px;
+        }
+
+        .btn-reject {
+            background: #dc3545;
+            color: white;
+        }
+
+        .alert {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .users-table {
+            width: 100%;
+            margin-top: 20px;
+            border-collapse: collapse;
+        }
+
+        .users-table th,
+        .users-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .users-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .users-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .no-users {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        #content {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Admin Panel</h1>
+        <p class="subtitle">Approve or Reject New User Registrations</p>
+
+        <div class="admin-key-section">
+            <label for="adminKey"><strong>Admin Key:</strong></label>
+            <input type="password" id="adminKey" placeholder="Enter admin key">
+            <button class="btn-primary" onclick="loadUsers()">🔓 Unlock Panel</button>
+            <div id="authMessage"></div>
+        </div>
+
+        <div id="content">
+            <div id="message"></div>
+            
+            <button class="btn-primary" onclick="loadUsers()" style="margin-bottom: 20px;">🔄 Refresh</button>
+
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>Tenant</th>
+                        <th>Email</th>
+                        <th>Full Name</th>
+                        <th>Registered</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="usersList">
+                    <tr>
+                        <td colspan="5" class="no-users">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let adminKey = '';
+
+        async function loadUsers() {
+            const key = document.getElementById('adminKey').value;
+            const authMessage = document.getElementById('authMessage');
+            const content = document.getElementById('content');
+            const message = document.getElementById('message');
+
+            if (!key) {
+                authMessage.innerHTML = '<div class="alert alert-error">Please enter admin key</div>';
+                return;
+            }
+
+            adminKey = key;
+
+            try {
+                const response = await fetch('/api/admin/pending-users', {
+                    headers: {
+                        'X-Admin-Key': adminKey
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Invalid admin key');
+                }
+
+                const data = await response.json();
+                
+                // Show content
+                content.style.display = 'block';
+                authMessage.innerHTML = '<div class="alert alert-success">✅ Authenticated</div>';
+
+                const usersList = document.getElementById('usersList');
+
+                if (data.users.length === 0) {
+                    usersList.innerHTML = '<tr><td colspan="5" class="no-users">No pending users</td></tr>';
+                } else {
+                    usersList.innerHTML = data.users.map(user => `
+                        <tr>
+                            <td><strong>${user.tenant_name}</strong></td>
+                            <td>${user.email}</td>
+                            <td>${user.full_name}</td>
+                            <td>${new Date(user.created_at).toLocaleString()}</td>
+                            <td>
+                                <button class="btn-approve" onclick="approveUser(${user.id})">✅ Approve</button>
+                                <button class="btn-reject" onclick="rejectUser(${user.id})">❌ Reject</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+
+                message.innerHTML = '';
+            } catch (error) {
+                authMessage.innerHTML = '<div class="alert alert-error">❌ ' + error.message + '</div>';
+                content.style.display = 'none';
+            }
+        }
+
+        async function approveUser(userId) {
+            const message = document.getElementById('message');
+
+            try {
+                const response = await fetch(`/api/admin/approve-user/${userId}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Admin-Key': adminKey
+                    }
+                });
+
+                if (!response.ok) throw new Error('Failed to approve user');
+
+                message.innerHTML = '<div class="alert alert-success">✅ User approved successfully!</div>';
+                
+                // Reload users
+                setTimeout(() => loadUsers(), 1000);
+            } catch (error) {
+                message.innerHTML = '<div class="alert alert-error">❌ ' + error.message + '</div>';
+            }
+        }
+
+        async function rejectUser(userId) {
+            if (!confirm('Are you sure you want to reject this user? This will delete their account.')) {
+                return;
+            }
+
+            const message = document.getElementById('message');
+
+            try {
+                const response = await fetch(`/api/admin/reject-user/${userId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-Admin-Key': adminKey
+                    }
+                });
+
+                if (!response.ok) throw new Error('Failed to reject user');
+
+                message.innerHTML = '<div class="alert alert-success">✅ User rejected successfully!</div>';
+                
+                // Reload users
+                setTimeout(() => loadUsers(), 1000);
+            } catch (error) {
+                message.innerHTML = '<div class="alert alert-error">❌ ' + error.message + '</div>';
+            }
+        }
+    </script>
+</body>
+</html>
