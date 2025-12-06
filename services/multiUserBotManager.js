@@ -357,19 +357,31 @@ class MultiUserBotManager {
         if (!message) return false;
         const lower = message.toLowerCase();
         
-        // Purchase keywords in multiple languages
-        const purchaseKeywords = [
-            // English
-            'buy', 'purchase', 'order', 'i want', 'i\'ll take', 'confirm',
-            // French
-            'acheter', 'commander', 'je veux', 'je prends', 'confirmer',
-            // Arabic
-            'شراء', 'شراه', 'طلب', 'بغيت', 'خذيت', 'تأكيد',
-            // Darija
-            'نشري', 'نآخذ', 'واخا', 'سير'
+        // Exclude information requests (browsing, asking about products)
+        const excludeKeywords = [
+            'voir', 'savoir', 'nchouf', 'nشوف', 'afficher', 'show', 'list',
+            'toute', 'tous', 'كاملين', 'kamlin', 'koulchi', 'كلشي',
+            'disponible', 'متاح', 'available', 'quoi', 'what', 'شنو', 'أش'
         ];
         
-        return purchaseKeywords.some(keyword => lower.includes(keyword));
+        // If asking for information, don't trigger purchase
+        if (excludeKeywords.some(keyword => lower.includes(keyword))) {
+            return false;
+        }
+        
+        // Strong purchase intent keywords (must be specific)
+        const strongPurchaseKeywords = [
+            // English - very specific
+            'i want to buy', 'i\'ll buy', 'i\'ll take it', 'i confirm', 'place order',
+            // French - very specific
+            'je veux acheter', 'je vais acheter', 'je prends', 'je confirme', 'passer commande',
+            // Arabic - specific purchase
+            'بغيت نشري', 'غادي نشري', 'خذيت', 'تأكيد الطلب',
+            // Darija - specific
+            'bghit nechri', 'ghadi nechri', 'nakhed', 'na9bel'
+        ];
+        
+        return strongPurchaseKeywords.some(keyword => lower.includes(keyword));
     }
 
     /**
