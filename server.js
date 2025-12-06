@@ -413,21 +413,29 @@ app.post('/api/start', authenticate, async (req, res) => {
 app.post('/api/stop', authenticate, async (req, res) => {
     try {
         const { sessionId } = req.body;
+        console.log('🛑 Stop request received for session:', sessionId);
         
         if (!sessionId) {
             return res.status(400).json({ error: 'sessionId is required' });
         }
 
         const connection = await db.getWhatsAppConnectionBySessionId(sessionId);
+        console.log('🔍 Connection found:', connection ? 'Yes' : 'No');
+        
         if (!connection || connection.tenant_id !== req.tenant.id) {
             return res.status(403).json({ error: 'Unauthorized' });
         }
 
+        console.log('🛑 Calling botManager.stopSession...');
         await botManager.stopSession(sessionId);
+        
+        console.log('💾 Updating connection status in DB...');
         await db.updateWhatsAppConnection(sessionId, { is_connected: false });
         
+        console.log('✅ Session stopped successfully');
         res.json({ message: 'Session stopped successfully', sessionId });
     } catch (error) {
+        console.error('❌ Error stopping session:', error);
         res.status(500).json({ error: error.message });
     }
 });

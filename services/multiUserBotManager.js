@@ -743,28 +743,38 @@ class MultiUserBotManager {
     }
 
     async stopSession(userId) {
+        console.log(`🛑 [${userId}] stopSession called`);
+        
         const sessionInfo = this.sessions.get(userId);
         if (!sessionInfo) {
+            console.log(`❌ [${userId}] Session not found in sessions Map`);
             throw new Error('Session not found');
         }
 
-        console.log(`🛑 [${userId}] Stopping session...`);
+        console.log(`🛑 [${userId}] Session found, proceeding to stop...`);
 
         try {
             if (sessionInfo.client) {
-                // Just destroy without logout to avoid file locking issues
+                console.log(`🛑 [${userId}] Destroying client...`);
                 await sessionInfo.client.destroy();
+                console.log(`✅ [${userId}] Client destroyed`);
                 
                 // Give time for files to be released
                 await new Promise(resolve => setTimeout(resolve, 1000));
+            } else {
+                console.log(`⚠️ [${userId}] No client found in session`);
             }
         } catch (error) {
             console.log(`⚠️ [${userId}] Error during cleanup (non-critical):`, error.message);
         }
 
+        console.log(`🗑️ [${userId}] Deleting session from Map...`);
         this.sessions.delete(userId);
+        
+        console.log(`📡 [${userId}] Emitting sessionStopped event...`);
         this.io.to(userId).emit('sessionStopped', { userId });
-        console.log(`✅ [${userId}] Session stopped`);
+        
+        console.log(`✅ [${userId}] Session stopped successfully`);
     }
 
     async clearSession(userId) {
