@@ -316,10 +316,26 @@ class MultiUserBotManager {
                 fileInfo: fileInfo
             });
 
+            // Check if AI response confirms order (AI says "confirmed", "مؤكد", etc.)
+            const aiConfirmsOrder = this.detectOrderConfirmationInAIResponse(aiResponse);
+            
             // Check if customer wants to purchase (confirmation keywords)
-            if (this.detectPurchaseIntent(messageBody)) {
-                // Start order flow
-                await this.initiateOrderFlow(tenantId, customerPhone, messageBody, chat, userId);
+            const customerConfirms = this.detectPurchaseIntent(messageBody, aiResponse);
+            
+            if (customerConfirms || aiConfirmsOrder) {
+                // Send AI response first
+                await message.reply(aiResponse);
+                console.log(`✅ [${userId}] Replied: ${aiResponse}`);
+                
+                // Then start order flow
+                await this.initiateOrderFlow(tenantId, customerPhone, aiResponse, chat, userId);
+                
+                this.io.to(userId).emit('messageSent', {
+                    userId,
+                    to: senderName,
+                    message: aiResponse,
+                    timestamp: new Date().toISOString()
+                });
                 return;
             }
 
@@ -351,11 +367,26 @@ class MultiUserBotManager {
     }
 
     /**
+     * Detect if AI response confirms an order
+     */
+    detectOrderConfirmationInAIResponse(aiResponse) {
+        if (!aiResponse) return false;
+        const lower = aiResponse.toLowerCase();
+        
+        const confirmationWords = [
+            'مؤكد', 'confirmed', 'confirmé', 'تأكد',
+            'طلبك', 'your order', 'votre commande', 'ta commande'
+        ];
+        
+        return confirmationWords.some(word => lower.includes(word));
+    }
+
+    /**
      * Detect if customer wants to make a purchase
      */
-    detectPurchaseIntent(message) {
+    detectPurchaseIntent(message, aiResponse = '') {
         if (!message) return false;
-        const lower = message.toLowerCase();
+        const lower = message.toLowerCase().trim();
         
         // Exclude information requests (browsing, asking about products)
         const excludeKeywords = [
@@ -369,16 +400,35 @@ class MultiUserBotManager {
             return false;
         }
         
+        // Simple yes/confirmation words (only if AI mentioned a product)
+        const simpleConfirmations = [
+            'yes', 'yeah', 'yep', 'ok', 'okay',
+            'oui', 'd\'accord', 'dacor', 'dac',
+            'نعم', 'أيوا', 'واخا', 'safi', 'wa5a', 'waka'
+        ];
+        
+        // If customer says simple "yes" and AI response contains product/price
+        const aiMentionsProduct = aiResponse && (
+            aiResponse.includes('DH') || 
+            aiResponse.includes('درهم') ||
+            aiResponse.includes('price') ||
+            aiResponse.includes('سعر')
+        );
+        
+        if (simpleConfirmations.includes(lower) && aiMentionsProduct) {
+            return true;
+        }
+        
         // Strong purchase intent keywords (must be specific)
         const strongPurchaseKeywords = [
             // English - very specific
-            'i want to buy', 'i\'ll buy', 'i\'ll take it', 'i confirm', 'place order',
+            'i want to buy', 'i\'ll buy', 'i\'ll take it', 'i confirm', 'place order', 'i want it',
             // French - very specific
-            'je veux acheter', 'je vais acheter', 'je prends', 'je confirme', 'passer commande',
+            'je veux acheter', 'je vais acheter', 'je prends', 'je confirme', 'passer commande', 'je le veux',
             // Arabic - specific purchase
-            'بغيت نشري', 'غادي نشري', 'خذيت', 'تأكيد الطلب',
+            'بغيت نشري', 'غادي نشري', 'خذيت', 'تأكيد الطلب', 'أريده',
             // Darija - specific
-            'bghit nechri', 'ghadi nechri', 'nakhed', 'na9bel'
+            'bghit nechri', 'ghadi nechri', 'nakhed', 'na9bel', 'bghito'
         ];
         
         return strongPurchaseKeywords.some(keyword => lower.includes(keyword));
