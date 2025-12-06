@@ -568,20 +568,26 @@ class MultiUserBotManager {
      */
     async forwardOrderToOwner(tenantId, orderId, userId, customerPhone) {
         try {
+            console.log(`🔄 [${userId}] Starting order forward for order ${orderId}, tenant ${tenantId}`);
+            
             // Get tenant and order info
             const tenant = await db.getTenantById(tenantId);
+            console.log(`📋 [${userId}] Tenant info:`, { id: tenant?.id, name: tenant?.name, ownerNumber: tenant?.owner_whatsapp_number });
+            
             const orders = await db.query('SELECT * FROM customer_orders WHERE id = $1', [orderId]);
             const order = orders.rows[0];
+            console.log(`📦 [${userId}] Order info:`, { id: order?.id, customer: order?.customer_name, phone: order?.customer_phone });
             
             if (!tenant.owner_whatsapp_number) {
-                console.warn(`⚠️ [${userId}] No owner WhatsApp number set for tenant ${tenantId}`);
-                throw new Error('Owner WhatsApp number not configured');
+                console.error(`❌ [${userId}] CRITICAL: No owner WhatsApp number set for tenant ${tenantId}`);
+                console.error(`❌ [${userId}] Tenant data:`, JSON.stringify(tenant));
+                throw new Error('Owner WhatsApp number not configured. Please add it in dashboard settings.');
             }
             
             // Get the bot client
             const sessionInfo = this.sessions.get(userId);
             if (!sessionInfo || !sessionInfo.client) {
-                console.error('Session not found');
+                console.error(`❌ [${userId}] Session not found or client missing`);
                 throw new Error('WhatsApp session not found');
             }
             
