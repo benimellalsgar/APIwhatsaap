@@ -618,38 +618,71 @@ class MultiUserBotManager {
      */
     async forwardOrderToOwner(tenantId, orderId, userId, customerPhone) {
         try {
-            console.log(`🔄 [${userId}] Starting order forward for order ${orderId}, tenant ${tenantId}`);
+            console.log(`\n${'='.repeat(60)}`);
+            console.log(`🔄 [${userId}] FORWARDING ORDER TO OWNER`);
+            console.log(`   Order ID: ${orderId}`);
+            console.log(`   Tenant ID: ${tenantId}`);
+            console.log(`   Customer: ${customerPhone}`);
+            console.log(`${'='.repeat(60)}\n`);
             
             // Get tenant and order info
+            console.log(`📋 [${userId}] Step 1: Fetching tenant from database...`);
             const tenant = await db.getTenantById(tenantId);
-            console.log(`📋 [${userId}] Tenant info:`, { id: tenant?.id, name: tenant?.name, ownerNumber: tenant?.owner_whatsapp_number });
+            console.log(`📋 [${userId}] Tenant retrieved:`, {
+                id: tenant?.id,
+                name: tenant?.name,
+                email: tenant?.email,
+                ownerNumber: tenant?.owner_whatsapp_number,
+                hasOwnerNumber: !!tenant?.owner_whatsapp_number
+            });
             
+            console.log(`📦 [${userId}] Step 2: Fetching order from database...`);
             const orders = await db.query('SELECT * FROM customer_orders WHERE id = $1', [orderId]);
             const order = orders.rows[0];
-            console.log(`📦 [${userId}] Order info:`, { id: order?.id, customer: order?.customer_name, phone: order?.customer_phone });
+            console.log(`📦 [${userId}] Order retrieved:`, {
+                id: order?.id,
+                customer_name: order?.customer_name,
+                customer_phone: order?.customer_phone,
+                has_payment_proof: !!order?.payment_proof_url
+            });
             
             if (!tenant.owner_whatsapp_number) {
-                console.error(`❌ [${userId}] CRITICAL: No owner WhatsApp number set for tenant ${tenantId}`);
-                console.error(`❌ [${userId}] Tenant data:`, JSON.stringify(tenant));
+                console.error(`\n${'!'.repeat(60)}`);
+                console.error(`❌ [${userId}] CRITICAL ERROR: No owner WhatsApp number!`);
+                console.error(`   Tenant ID: ${tenantId}`);
+                console.error(`   Tenant Name: ${tenant?.name}`);
+                console.error(`   Full Tenant Data:`, JSON.stringify(tenant, null, 2));
+                console.error(`${'!'.repeat(60)}\n`);
                 throw new Error('Owner WhatsApp number not configured. Please add it in dashboard settings.');
             }
             
             // Get the bot client
+            console.log(`🤖 [${userId}] Step 3: Getting bot client from sessions...`);
             const sessionInfo = this.sessions.get(userId);
+            console.log(`🤖 [${userId}] Session found:`, !!sessionInfo);
+            console.log(`🤖 [${userId}] Client found:`, !!sessionInfo?.client);
+            
             if (!sessionInfo || !sessionInfo.client) {
                 console.error(`❌ [${userId}] Session not found or client missing`);
+                console.error(`   Available sessions:`, Array.from(this.sessions.keys()));
                 throw new Error('WhatsApp session not found');
             }
             
             const client = sessionInfo.client;
             
             // Format owner number correctly (should already be in format: 212600000000@c.us)
+            console.log(`📞 [${userId}] Step 4: Formatting owner WhatsApp number...`);
             let ownerNumber = tenant.owner_whatsapp_number;
+            console.log(`   Original number: ${ownerNumber}`);
+            
             if (!ownerNumber.includes('@')) {
                 ownerNumber = `${ownerNumber}@c.us`;
+                console.log(`   Formatted number: ${ownerNumber}`);
             }
             
-            console.log(`📤 [${userId}] Forwarding order ${orderId} to owner: ${ownerNumber}`);
+            console.log(`\n📤 [${userId}] Step 5: SENDING MESSAGE TO OWNER`);
+            console.log(`   Target: ${ownerNumber}`);
+            console.log(`   Order ID: ${orderId}`);
             
             // Build order summary message
             let orderMessage = `🛒 *NOUVELLE COMMANDE REÇUE*\n\n`;
@@ -661,18 +694,26 @@ class MultiUserBotManager {
             orderMessage += `📅 Order Date: ${order.created_at}\n`;
             orderMessage += `🆔 Order ID: #${order.id}`;
             
+            console.log(`📝 [${userId}] Message content prepared (${orderMessage.length} chars)`);
+            
             // Send message to owner
+            console.log(`⏳ [${userId}] Sending message via WhatsApp...`);
             await client.sendMessage(ownerNumber, orderMessage);
-            console.log(`✅ [${userId}] Order details sent to owner: ${ownerNumber}`);
+            console.log(`✅ [${userId}] ✓ ORDER MESSAGE SENT SUCCESSFULLY!`);
             
             // Send payment proof if available
             if (order.payment_proof_url) {
+                console.log(`📸 [${userId}] Step 6: Sending payment proof image...`);
+                console.log(`   Image URL: ${order.payment_proof_url}`);
                 const media = await MessageMedia.fromUrl(order.payment_proof_url);
                 await client.sendMessage(ownerNumber, media, { caption: '💳 Payment Proof' });
-                console.log(`✅ [${userId}] Payment proof sent to owner`);
+                console.log(`✅ [${userId}] ✓ PAYMENT PROOF SENT!`);
+            } else {
+                console.log(`ℹ️ [${userId}] No payment proof to send`);
             }
             
             // Emit to web interface
+            console.log(`📡 [${userId}] Step 7: Emitting orderForwarded event...`);
             this.io.to(userId).emit('orderForwarded', {
                 userId,
                 orderId: order.id,
@@ -680,8 +721,19 @@ class MultiUserBotManager {
                 timestamp: new Date().toISOString()
             });
             
+            console.log(`\n${'='.repeat(60)}`);
+            console.log(`🎉 [${userId}] ORDER FORWARDING COMPLETED SUCCESSFULLY!`);
+            console.log(`   Order ID: ${orderId}`);
+            console.log(`   Sent to: ${ownerNumber}`);
+            console.log(`${'='.repeat(60)}\n`);
+            
         } catch (error) {
-            console.error('Error forwarding order to owner:', error);
+            console.error(`\n${'X'.repeat(60)}`);
+            console.error(`❌ [${userId}] ERROR FORWARDING ORDER`);
+            console.error(`   Order ID: ${orderId}`);
+            console.error(`   Error:`, error.message);
+            console.error(`   Stack:`, error.stack);
+            console.error(`${'X'.repeat(60)}\n`);
             throw error;
         }
     }
@@ -717,24 +769,70 @@ class MultiUserBotManager {
             
             if (files.length === 0) return null;
 
-            // Try to match file label with message
+            // Extract words from message (split by spaces and remove special chars)
+            const messageWords = lowerMessage
+                .replace(/[^\w\s\u0600-\u06FF]/g, ' ')
+                .split(/\s+/)
+                .filter(w => w.length > 2); // Ignore very short words
+
+            // Try to match file label with message - STRICT MATCHING
+            let bestMatch = null;
+            let bestMatchScore = 0;
+
             for (const file of files) {
                 const label = file.file_label.toLowerCase();
-                if (lowerMessage.includes(label)) {
-                    return file;
+                const labelWords = label
+                    .replace(/[^\w\s\u0600-\u06FF]/g, ' ')
+                    .split(/\s+/)
+                    .filter(w => w.length > 2);
+
+                // Calculate match score: how many label words appear in message
+                let matchScore = 0;
+                for (const labelWord of labelWords) {
+                    // Exact word match or message contains the full label word
+                    if (messageWords.some(mw => mw === labelWord || mw.includes(labelWord))) {
+                        matchScore++;
+                    }
+                }
+
+                // Only consider it a match if at least 50% of label words match
+                const matchPercentage = labelWords.length > 0 ? matchScore / labelWords.length : 0;
+                
+                if (matchPercentage >= 0.5 && matchScore > bestMatchScore) {
+                    bestMatchScore = matchScore;
+                    bestMatch = file;
                 }
             }
 
-            // If no specific match, return first catalog/price list file
-            const catalogFile = files.find(f => 
-                f.file_label.toLowerCase().includes('catalog') || 
-                f.file_label.toLowerCase().includes('catalogue') ||
-                f.file_label.toLowerCase().includes('كتالوج') ||
-                f.file_label.toLowerCase().includes('price') ||
-                f.file_label.toLowerCase().includes('prix')
+            // If we found a good match, return it
+            if (bestMatch) {
+                console.log(`📎 [File Match] Found: "${bestMatch.file_label}" (score: ${bestMatchScore})`);
+                return bestMatch;
+            }
+
+            // Only return catalog as fallback for very general requests
+            const isGeneralRequest = fileKeywords.some(kw => 
+                ['catalog', 'catalogue', 'كتالوج', 'price', 'prix', 'menu'].includes(kw) && 
+                lowerMessage.includes(kw)
             );
 
-            return catalogFile || files[0]; // Return first file as fallback
+            if (isGeneralRequest) {
+                const catalogFile = files.find(f => 
+                    f.file_label.toLowerCase().includes('catalog') || 
+                    f.file_label.toLowerCase().includes('catalogue') ||
+                    f.file_label.toLowerCase().includes('كتالوج') ||
+                    f.file_label.toLowerCase().includes('price') ||
+                    f.file_label.toLowerCase().includes('prix')
+                );
+                
+                if (catalogFile) {
+                    console.log(`📎 [File Match] General catalog request: "${catalogFile.file_label}"`);
+                    return catalogFile;
+                }
+            }
+
+            // No match found
+            return null;
 
         } catch (error) {
             console.error('Error detecting file request:', error);

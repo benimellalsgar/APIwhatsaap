@@ -463,6 +463,23 @@ app.post('/api/clear', authenticate, async (req, res) => {
     }
 });
 
+// Get tenant info endpoint (for debugging)
+app.get('/api/tenant-info', authenticate, async (req, res) => {
+    try {
+        const tenant = await db.getTenantById(req.tenant.id);
+        res.json({
+            id: tenant.id,
+            name: tenant.name,
+            email: tenant.email,
+            owner_whatsapp_number: tenant.owner_whatsapp_number,
+            created_at: tenant.created_at
+        });
+    } catch (error) {
+        console.error('❌ Error getting tenant info:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error('Error:', err);
