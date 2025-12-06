@@ -36,14 +36,14 @@ class AIService {
     }
 
     /**
-     * Generate AI response with file/media support
+     * Generate AI response with file/media support (including image vision)
      * @param {string} message - User's message
-     * @param {object} context - Additional context (senderName, chatId, fileInfo, etc.)
+     * @param {object} context - Additional context (senderName, chatId, fileInfo, imageData, etc.)
      * @returns {Promise<string>} AI generated response
      */
     async generateResponse(message, context = {}) {
         try {
-            const { senderName, chatId } = context;
+            const { senderName, chatId, imageData } = context;
 
             // Get or initialize conversation history for this chat
             if (!this.conversationHistory.has(chatId)) {
@@ -58,13 +58,48 @@ class AIService {
                 history.pop();
             }
 
-            // Build message content (with optional file)
-            let userContent = message;
+            // Build message content - handle images with vision
+            let userContent;
             
-            // If there's a file, format it for the AI
-            if (context.fileInfo) {
+            if (imageData && this.provider === 'openai' && imageData.base64) {
+                // Validate image data
+                const validImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+                
+                if (!validImageTypes.includes(imageData.mimetype)) {
+                    console.warn(`⚠️ [Vision] Unsupported image type: ${imageData.mimetype}`);
+                    userContent = message || "Sorry, I can only analyze JPEG, PNG, GIF, and WebP images.";
+                } else {
+                    // OpenAI Vision format - analyze image
+                    console.log(`🖼️ [Vision] Processing ${imageData.mimetype} image with OpenAI Vision API`);
+                    console.log(`   Image size: ${(imageData.base64.length / 1024).toFixed(2)} KB`);
+                    
+                    // Prepare vision request with strict quality settings
+                    userContent = [
+                        {
+                            type: "text",
+                            text: message || "Analyze this image carefully and describe what you see. If it's a payment proof, extract amount and date. If it's a product, identify it. Be precise and accurate."
+                        },
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: `data:${imageData.mimetype};base64,${imageData.base64}`,
+                                detail: "high" // High detail for maximum accuracy - critical for payment proofs
+                            }
+                        }
+                    ];
+                    console.log('✓ [Vision] Image prepared for analysis with HIGH detail mode');
+                }
+            } else if (imageData && this.provider !== 'openai') {
+                // Vision not supported for this provider
+                console.warn(`⚠️ [Vision] Image sent but provider '${this.provider}' does not support vision`);
+                userContent = message || "I received your image, but I cannot analyze images with the current AI provider. Please describe what you need.";
+            } else if (context.fileInfo) {
+                // Regular file (not image or no vision support)
                 const fileDescription = await this.describeFile(context.fileInfo);
                 userContent = `${message}\n\n[File attached: ${fileDescription}]`;
+            } else {
+                // Text only
+                userContent = message;
             }
             
             // Add user message to history
@@ -115,7 +150,15 @@ class AIService {
                     requestBody.return_images = false;
                 }
 
+                // For vision models, increase max tokens for better image analysis
+                if (imageData && (requestBody.model.includes('gpt-4') || requestBody.model.includes('gpt-4o'))) {
+                    console.log('🖼️ [Vision] Using vision-capable model:', requestBody.model);
+                    requestBody.max_tokens = Math.max(requestBody.max_tokens, 800); // Ensure enough tokens for image analysis
+                }
+
+                console.log(`🤖 [AI] Calling ${this.provider} API with model: ${requestBody.model}`);
                 const completion = await this.openai.chat.completions.create(requestBody);
+                console.log(`✅ [AI] Response received (${completion.choices[0].finish_reason})`);
 
                 aiResponse = completion.choices[0].message.content;
             }
@@ -129,7 +172,7 @@ class AIService {
             return aiResponse;
 
         } catch (error) {
-            console.error('Error generating AI response:', error);
+            console.error('❌ [AI] Error generating response:', error);
             
             if (error.code === 'insufficient_quota' || error.error?.type === 'insufficient_quota') {
                 return 'Sorry, the AI service quota has been exceeded. Please contact the administrator.';
@@ -137,6 +180,19 @@ class AIService {
             
             if (error.code === 'invalid_api_key' || error.status === 401) {
                 return 'Sorry, there is a configuration issue. Please contact the administrator.';
+            }
+
+            // Vision-specific errors
+            if (imageData && error.message) {
+                if (error.message.includes('image') || error.message.includes('vision')) {
+                    console.error('❌ [Vision] Image processing error:', error.message);
+                    return 'Sorry, I could not analyze the image. Please try sending it again or describe what you need.';
+                }
+                
+                if (error.message.includes('size') || error.message.includes('large')) {
+                    console.error('❌ [Vision] Image too large:', error.message);
+                    return 'The image is too large. Please send a smaller image (under 20MB).';
+                }
             }
 
             return 'Sorry, I am having trouble processing your request right now. Please try again later.';
@@ -204,6 +260,14 @@ ${productData}
 5. **ALWAYS reply in customer's language** (English, French, Arabic, Darija)
 6. **COMPLETE but FOCUSED answers** - Give full product details (price, features, delivery) but ONLY for YOUR products. 2-3 sentences when needed.
 7. **ACCURATE prices** - Only mention products/prices from YOUR list above
+8. **IMAGE ANALYSIS (VISION)** - When customer sends image:
+   - Analyze image content carefully and accurately
+   - If image shows payment proof: Read amount, date, transaction details → Confirm receipt
+   - If image shows product: Identify it → Match with YOUR products if available → Offer for sale
+   - If unclear/blurry image: Ask customer to resend clearer photo
+   - If image unrelated to your business: Politely redirect to products
+   - ALWAYS respond in customer's language about what you see
+   - Be PRECISE and ACCURATE with image analysis - no guessing
 8. **Confirm emails exactly** as customer writes them
 9. **Professional tone** - polite, helpful for sales, cold for off-topic
 10. **Zero tolerance** for off-topic - refuse immediately, redirect to sales
@@ -273,6 +337,26 @@ Customer: "ما هو AI؟" → You: "للشراء فقط. تريد منتج؟"
 Customer: "كيف أصلح PC؟" → You: "للمبيعات فقط. Windows + Office؟"
 Customer: "اشرح blockchain" → You: "عذراً، مبيعات فقط. منتج؟"
 
+✅ IMAGE HANDLING EXAMPLES:
+
+**Payment Proof Screenshots:**
+Customer: [Sends payment screenshot image]
+You analyze: "✅ Payment received! I see 150 DH transfer on Dec 6, 2024 at 14:30. Transaction confirmed. Your email for activation?"
+
+Customer: [Sends blurry payment image]
+You: "⚠️ Image is not clear. Please send a clearer screenshot showing amount and date."
+
+**Product Inquiry Images:**
+Customer: [Sends photo of iPhone]
+You analyze: "I see iPhone 15 Pro in the image. We have it for 12,000 DH with 1-year warranty. Delivery 50 DH in Casa. Want it?"
+
+Customer: [Sends random image unrelated to business]
+You: "Thanks for the image, but I can only help with purchasing our products. Need anything?"
+
+**Document/Screenshot Analysis:**
+Customer: [Sends screenshot of error message]
+You: "I see a technical error in your screenshot. I only help with product purchases. Need Windows + Office (99 DH)?"
+
 🔴 ABSOLUTE RULES - NO EXCEPTIONS:
 - REFUSE ALL off-topic questions - zero tolerance
 - NEVER give descriptions, definitions, or explanations
@@ -281,7 +365,9 @@ Customer: "اشرح blockchain" → You: "عذراً، مبيعات فقط. من
 - Every response: grammatically perfect, sales-focused only
 - If not about YOUR products → refuse in 5 words, redirect to sales
 - Stay cold and transactional for off-topic questions
-- Warm and helpful ONLY for product purchases`;
+- Warm and helpful ONLY for product purchases
+- IMAGE VISION: Analyze accurately, no hallucinations, admit if unclear
+- PAYMENT PROOFS: Read amount, date, time precisely - confirm receipt`;
 
     }
 

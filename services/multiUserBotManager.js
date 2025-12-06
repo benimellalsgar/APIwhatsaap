@@ -239,6 +239,8 @@ class MultiUserBotManager {
 
             // Check if message has media
             let fileInfo = null;
+            let imageData = null;
+            
             if (message.hasMedia) {
                 console.log(`📎 [${userId}] Message contains media, downloading...`);
                 
@@ -250,6 +252,17 @@ class MultiUserBotManager {
                         fileInfo = await fileStorageService.downloadWhatsAppMedia(media, userId);
                         console.log(`✅ [${userId}] Media saved: ${fileInfo.mimeType}, ${(fileInfo.size / 1024).toFixed(2)}KB`);
                         
+                        // If it's an image, prepare for Vision API analysis
+                        if (media.mimetype && media.mimetype.startsWith('image/') && media.data) {
+                            console.log(`🖼️ [${userId}] Image detected, preparing for Vision API analysis`);
+                            imageData = {
+                                base64: media.data,
+                                mimetype: media.mimetype,
+                                filename: media.filename || 'image.jpg'
+                            };
+                            console.log(`✓ [${userId}] Image ready for AI vision (${media.mimetype})`);
+                        }
+                        
                         // Emit to user's web interface
                         this.io.to(userId).emit('mediaReceived', {
                             userId,
@@ -257,7 +270,8 @@ class MultiUserBotManager {
                             fileInfo: {
                                 mimeType: fileInfo.mimeType,
                                 size: fileInfo.size,
-                                category: fileInfo.category
+                                category: fileInfo.category,
+                                isImage: !!imageData
                             },
                             message: messageBody || '[Media file]',
                             timestamp: new Date().toISOString()
@@ -309,11 +323,12 @@ class MultiUserBotManager {
                 }
             }
 
-            // Get AI response with file info if available
+            // Get AI response with file/image info if available
             const aiResponse = await aiService.generateResponse(messageBody || '', {
                 senderName: senderName,
                 chatId: `${userId}_${message.from}`,
-                fileInfo: fileInfo
+                fileInfo: fileInfo,
+                imageData: imageData // Pass image data for Vision API
             });
 
             // Check if AI response confirms order (AI says "confirmed", "مؤكد", etc.)
