@@ -441,10 +441,15 @@
         });
 
         socket.on('qr', (data) => {
+            console.log('QR Code received');
             qrArea.classList.remove('hidden');
             qrArea.querySelector('.loading').classList.add('hidden');
             qrCode.src = data.qrCode;
             qrCode.classList.remove('hidden');
+            qrCode.onerror = () => {
+                console.error('Failed to load QR code image');
+                showAlert('Failed to load QR code. Please try again.', 'error');
+            };
         });
 
         socket.on('authenticated', () => {
@@ -540,11 +545,17 @@
         });
 
         stopBtn.addEventListener('click', async () => {
-            if (!currentSessionId) return;
+            if (!currentSessionId) {
+                showAlert('No active session to stop', 'error');
+                return;
+            }
             
             if (confirm('Are you sure you want to stop your bot?')) {
+                stopBtn.disabled = true;
+                stopBtn.textContent = 'Stopping...';
+                
                 try {
-                    await fetch('/api/stop', { 
+                    const res = await fetch('/api/stop', { 
                         method: 'POST',
                         headers: { 
                             'Content-Type': 'application/json',
@@ -552,8 +563,22 @@
                         },
                         body: JSON.stringify({ sessionId: currentSessionId })
                     });
+                    
+                    const data = await res.json();
+                    
+                    if (res.ok) {
+                        showAlert(data.message || 'Bot stopped successfully', 'success');
+                        resetUI();
+                        currentSessionId = null;
+                    } else {
+                        showAlert(data.error || 'Failed to stop bot', 'error');
+                    }
                 } catch (error) {
-                    showAlert('Failed to stop session', 'error');
+                    console.error('Stop error:', error);
+                    showAlert('Failed to stop session: ' + error.message, 'error');
+                } finally {
+                    stopBtn.disabled = false;
+                    stopBtn.textContent = 'Stop My Bot';
                 }
             }
         });
