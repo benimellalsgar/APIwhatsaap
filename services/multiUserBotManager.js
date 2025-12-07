@@ -600,6 +600,30 @@ class MultiUserBotManager {
             if (state === 'awaiting_payment') {
                 console.log(`💳 [${userId}] In awaiting_payment state`);
                 
+                // Check for cancel keywords
+                const cancelKeywords = [
+                    'annuler', 'cancel', 'stop', 'non', 'no', 'لا', 'ماشي', 'machi'
+                ];
+                
+                if (cancelKeywords.some(kw => messageText.includes(kw))) {
+                    console.log(`❌ [${userId}] Customer cancelled order`);
+                    this.orderStates.delete(`${tenantId}_${customerPhone}`);
+                    await chat.sendMessage('✅ Commande annulée. Comment puis-je vous aider?');
+                    return true;
+                }
+                
+                // Allow customer to ask questions during payment flow
+                const questionKeywords = [
+                    'voir', 'photo', 'image', 'picture', 'show', 'صورة', 'شوف',
+                    'question', 'info', 'معلومات', 'prix', 'price', 'سعر'
+                ];
+                
+                if (questionKeywords.some(kw => messageText.includes(kw))) {
+                    console.log(`❓ [${userId}] Customer asking question during payment flow`);
+                    // Don't handle here - let it fall through to normal AI response
+                    return false; // Not handled, continue to normal flow
+                }
+                
                 // Check for payment confirmation text (without image)
                 const paymentConfirmWords = [
                     'fait', 'virement', 'payé', 'envoyé', 'transféré', 
@@ -688,19 +712,35 @@ class MultiUserBotManager {
                     // Customer says they paid but no image - ask for proof
                     await chat.sendMessage('✅ Parfait! Pour finaliser, merci d\'envoyer une capture d\'écran ou photo du reçu de virement (confirmation bancaire).');
                     return true;
+                } else {
+                    // Customer sent something else (not image, not confirmation)
+                    // Remind about payment but don't block completely
+                    await chat.sendMessage(
+                        '💳 *Paiement en attente*\n\n' +
+                        'Pour continuer votre commande, envoyez votre screenshot de paiement.\n\n' +
+                        '❌ Pour annuler: répondez "ANNULER"\n' +
+                        '❓ Besoin d\'aide? Posez votre question.'
+                    );
+                    return true;
                 }
-                
-                await chat.sendMessage('💳 Merci d\'envoyer une capture d\'écran ou photo de votre preuve de paiement (reçu de virement bancaire).');
-                return true;
             }
             
             if (state === 'awaiting_info') {
                 // Customer is sending their info (name, address, email)
                 const messageText = message.body || '';
                 
+                // Check for cancel
+                const cancelKeywords = ['annuler', 'cancel', 'stop', 'non', 'no', 'لا', 'ماشي'];
+                if (cancelKeywords.some(kw => messageText.toLowerCase().includes(kw))) {
+                    console.log(`❌ [${userId}] Customer cancelled order`);
+                    this.orderStates.delete(`${tenantId}_${customerPhone}`);
+                    await chat.sendMessage('✅ Commande annulée. Comment puis-je vous aider?');
+                    return true;
+                }
+                
                 // Check if message has enough info (at least name-like content)
                 if (messageText.trim().length < 5) {
-                    await chat.sendMessage('Merci de fournir vos informations complètes:\n1. Nom complet\n2. Adresse de livraison\n3. Email (optionnel)');
+                    await chat.sendMessage('Merci de fournir vos informations complètes:\n1. Nom complet\n2. Adresse de livraison\n3. Email (optionnel)\n\n❌ Pour annuler: "ANNULER"');
                     return true;
                 }
                 
