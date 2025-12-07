@@ -389,23 +389,10 @@ class MultiUserBotManager {
         }
     }
 
-    /**
-     * Detect if AI response confirms an order
-     */
-    detectOrderConfirmationInAIResponse(aiResponse) {
-        if (!aiResponse) return false;
-        const lower = aiResponse.toLowerCase();
-        
-        const confirmationWords = [
-            'مؤكد', 'confirmed', 'confirmé', 'تأكد',
-            'طلبك', 'your order', 'votre commande', 'ta commande'
-        ];
-        
-        return confirmationWords.some(word => lower.includes(word));
-    }
+
 
     /**
-     * Detect if customer wants to make a purchase
+     * Detect if customer shows INTEREST in a product (not final confirmation)
      */
     detectPurchaseIntent(message, aiResponse = '') {
         if (!message) return false;
@@ -423,38 +410,17 @@ class MultiUserBotManager {
             return false;
         }
         
-        // Simple yes/confirmation words (only if AI mentioned a product)
-        const simpleConfirmations = [
-            'yes', 'yeah', 'yep', 'ok', 'okay',
-            'oui', 'd\'accord', 'dacor', 'dac',
-            'نعم', 'أيوا', 'واخا', 'safi', 'wa5a', 'waka'
+        // Initial purchase interest keywords (shows interest, triggers confirmation message)
+        const interestKeywords = [
+            // English
+            'i want', 'i need', 'i would like', 'i\'d like', 'bghit', 'بغيت',
+            // French  
+            'je veux', 'je voudrais', 'j\'aimerais',
+            // Arabic/Darija
+            'بغيت', 'بغيتي', 'أريد', 'نريد'
         ];
         
-        // If customer says simple "yes" and AI response contains product/price
-        const aiMentionsProduct = aiResponse && (
-            aiResponse.includes('DH') || 
-            aiResponse.includes('درهم') ||
-            aiResponse.includes('price') ||
-            aiResponse.includes('سعر')
-        );
-        
-        if (simpleConfirmations.includes(lower) && aiMentionsProduct) {
-            return true;
-        }
-        
-        // Strong purchase intent keywords (must be specific)
-        const strongPurchaseKeywords = [
-            // English - very specific
-            'i want to buy', 'i\'ll buy', 'i\'ll take it', 'i confirm', 'place order', 'i want it',
-            // French - very specific
-            'je veux acheter', 'je vais acheter', 'je prends', 'je confirme', 'passer commande', 'je le veux',
-            // Arabic - specific purchase
-            'بغيت نشري', 'غادي نشري', 'خذيت', 'تأكيد الطلب', 'أريده',
-            // Darija - specific
-            'bghit nechri', 'ghadi nechri', 'nakhed', 'na9bel', 'bghito'
-        ];
-        
-        return strongPurchaseKeywords.some(keyword => lower.includes(keyword));
+        return interestKeywords.some(keyword => lower.includes(keyword));
     }
 
     /**
