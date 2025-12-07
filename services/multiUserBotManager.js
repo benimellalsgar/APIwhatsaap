@@ -825,6 +825,20 @@ class MultiUserBotManager {
             console.log(`   Target: ${ownerNumber}`);
             console.log(`   Order ID: ${orderId}`);
             
+            // Verify number is registered on WhatsApp
+            console.log(`🔍 [${userId}] Step 5.1: Verifying owner number is on WhatsApp...`);
+            try {
+                const numberId = await client.getNumberId(ownerNumber);
+                if (!numberId) {
+                    console.error(`❌ [${userId}] Owner number ${ownerNumber} is NOT registered on WhatsApp!`);
+                    throw new Error(`Owner WhatsApp number ${tenant.owner_whatsapp_number} is not registered on WhatsApp. Please verify the number.`);
+                }
+                console.log(`✅ [${userId}] Owner number verified: ${numberId._serialized}`);
+            } catch (verifyError) {
+                console.error(`❌ [${userId}] Error verifying owner number:`, verifyError.message);
+                throw new Error(`Cannot verify owner WhatsApp number. Number may be invalid: ${tenant.owner_whatsapp_number}`);
+            }
+            
             // Get payment analysis from order state (if available)
             const orderStateData = this.orderStates.get(`${tenantId}_${customerPhone}`) || {};
             const paymentAnalysis = orderStateData.collectedInfo?.paymentAnalysis;
@@ -850,8 +864,13 @@ class MultiUserBotManager {
             
             // Send message to owner
             console.log(`⏳ [${userId}] Sending message via WhatsApp...`);
-            await client.sendMessage(ownerNumber, orderMessage);
-            console.log(`✅ [${userId}] ✓ ORDER MESSAGE SENT SUCCESSFULLY!`);
+            try {
+                await client.sendMessage(ownerNumber, orderMessage);
+                console.log(`✅ [${userId}] ✓ ORDER MESSAGE SENT SUCCESSFULLY!`);
+            } catch (sendError) {
+                console.error(`❌ [${userId}] Failed to send message:`, sendError);
+                throw new Error(`Failed to send order to owner: ${sendError.message}`);
+            }
             
             // Send payment proof if available
             if (order.payment_proof_url) {
