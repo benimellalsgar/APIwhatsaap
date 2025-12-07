@@ -458,23 +458,29 @@ class MultiUserBotManager {
     }
 
     /**
-     * Detect language from text and return appropriate payment request message
+     * Detect language from text and return appropriate payment request message with RIB
      */
-    detectLanguage(text) {
+    detectLanguage(text, tenantRIB = null) {
         const lower = text.toLowerCase();
+        
+        // Build RIB section if provided
+        let ribSection = '';
+        if (tenantRIB) {
+            ribSection = `\n\n🏦 *RIB pour virement:*\n${tenantRIB}`;
+        }
         
         // Check for Arabic/Darija
         if (/[\u0600-\u06FF]/.test(text) || lower.includes('dh') || lower.includes('dirham')) {
-            return `💳 *تأكيد الطلب*\n\nشكراً! المرجو إرسال إثبات الدفع (screenshot) بعد إتمام التحويل.\n\n📸 أرسل صورة الوصل الآن`;
+            return `💳 *تأكيد الطلب*\n\nشكراً! المرجو إرسال إثبات الدفع (screenshot) بعد إتمام التحويل.${ribSection}\n\n📸 أرسل صورة الوصل الآن`;
         }
         
         // Check for French
         if (lower.includes('produit') || lower.includes('prix') || lower.includes('merci')) {
-            return `💳 *Confirmation de commande*\n\nParfait! Veuillez envoyer la preuve de paiement (screenshot) après avoir effectué le virement.\n\n📸 Envoyez la photo du reçu maintenant`;
+            return `💳 *Confirmation de commande*\n\nParfait! Veuillez envoyer la preuve de paiement (screenshot) après avoir effectué le virement.${ribSection}\n\n📸 Envoyez la photo du reçu maintenant`;
         }
         
         // Default English
-        return `💳 *Order Confirmation*\n\nPerfect! Please send payment proof (screenshot) after completing the transfer.\n\n📸 Send receipt photo now`;
+        return `💳 *Order Confirmation*\n\nPerfect! Please send payment proof (screenshot) after completing the transfer.${ribSection}\n\n📸 Send receipt photo now`;
     }
 
     /**
@@ -528,8 +534,16 @@ class MultiUserBotManager {
      */
     async initiateOrderFlow(tenantId, customerPhone, orderDetails, chat, userId) {
         try {
-            // Create order in database
+            // Create order in database and extract expected amount
             const order = await db.createOrder(tenantId, customerPhone, orderDetails);
+            
+            // Extract expected amount from order details
+            const amountMatch = orderDetails.match(/(\d+[\d,]*)\s*(DH|درهم)/i);
+            const expectedAmount = amountMatch ? parseInt(amountMatch[1].replace(/,/g, '')) : null;
+            
+            // Get tenant info for RIB
+            const tenant = await db.getTenantById(tenantId);
+            const bankRIB = tenant?.bank_rib;
             
             // Get payment screenshot from file library
             const paymentFile = await db.getTenantFileByLabel(tenantId, 'payment');
@@ -541,27 +555,29 @@ class MultiUserBotManager {
                     caption: '💳 Perfect! Here\'s our payment information. Please send your payment proof after completing the transaction.' 
                 });
                 
-                // Set order state to awaiting payment
+                // Set order state to awaiting payment with expected amount
                 this.orderStates.set(`${tenantId}_${customerPhone}`, {
                     orderId: order.id,
                     state: 'awaiting_payment',
-                    orderDetails: orderDetails
+                    orderDetails: orderDetails,
+                    expectedAmount: expectedAmount
                 });
                 
                 await db.updateOrder(order.id, { order_state: 'awaiting_payment' });
                 
-                console.log(`💳 [${userId}] Order flow started for ${customerPhone}`);
+                console.log(`💳 [${userId}] Order flow started for ${customerPhone} - Expected: ${expectedAmount} DH`);
             } else {
-                // No payment screenshot configured - ask customer to send it anyway
+                // No payment screenshot configured - send text message with RIB
                 console.log(`⚠️ [${userId}] No payment file configured, asking customer to send proof`);
                 
-                const paymentMsg = this.detectLanguage(orderDetails);
+                const paymentMsg = this.detectLanguage(orderDetails, bankRIB);
                 await chat.sendMessage(paymentMsg);
                 
                 this.orderStates.set(`${tenantId}_${customerPhone}`, {
                     orderId: order.id,
                     state: 'awaiting_payment',
                     orderDetails: orderDetails,
+                    expectedAmount: expectedAmount,
                     collectedInfo: {}
                 });
                 
@@ -652,6 +668,29 @@ class MultiUserBotManager {
                         );
                         
                         console.log(`✅ [${userId}] Payment analysis: ${paymentAnalysis}`);
+                        
+                        // Extract amount from AI analysis
+                        const analysisAmountMatch = paymentAnalysis.match(/(\d+[\d,]*)\s*(DH|درهم|MAD)/i);
+                        const paidAmount = analysisAmountMatch ? parseInt(analysisAmountMatch[1].replace(/,/g, '')) : null;
+                        const expectedAmount = orderState.expectedAmount;
+                        
+                        console.log(`💰 [${userId}] Amount verification - Expected: ${expectedAmount} DH, Paid: ${paidAmount} DH`);
+                        
+                        // Verify payment amount matches expected amount
+                        if (expectedAmount && paidAmount && Math.abs(paidAmount - expectedAmount) > 10) {
+                            // Amount doesn't match (allowing 10 DH tolerance for fees)
+                            console.error(`❌ [${userId}] Payment amount mismatch! Expected: ${expectedAmount}, Got: ${paidAmount}`);
+                            await chat.sendMessage(
+                                `⚠️ *Montant incorrect détecté!*\n\n` +
+                                `💰 Montant attendu: ${expectedAmount} DH\n` +
+                                `💳 Montant payé: ${paidAmount} DH\n\n` +
+                                `⚠️ Le montant ne correspond pas. Merci d'envoyer le bon montant ou de vérifier votre paiement.\n\n` +
+                                `Si vous pensez qu'il y a une erreur, contactez-nous.`
+                            );
+                            return true; // Stay in awaiting_payment state
+                        }
+                        
+                        console.log(`✅ [${userId}] Payment amount verified and correct!`);
                         
                         // Upload payment proof to Cloudinary
                         const cloudinaryService = require('./cloudinaryService');

@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     owner_whatsapp_number VARCHAR(50),
+    bank_rib VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     is_active BOOLEAN DEFAULT true,

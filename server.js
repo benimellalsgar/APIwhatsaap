@@ -359,20 +359,27 @@ app.post('/api/start', authenticate, async (req, res) => {
         
         console.log('🚀 Starting session for tenant:', req.tenant.id, 'with config:', config);
         
-        // Update tenant with owner WhatsApp number if provided
+        // Update tenant with owner WhatsApp number and bank RIB if provided
+        const tenantUpdates = {};
         if (config?.ownerWhatsApp) {
             console.log('📱 Updating owner WhatsApp number:', config.ownerWhatsApp);
+            tenantUpdates.owner_whatsapp_number = config.ownerWhatsApp;
+        }
+        if (config?.bankRIB) {
+            console.log('🏦 Updating bank RIB:', config.bankRIB);
+            tenantUpdates.bank_rib = config.bankRIB;
+        }
+        
+        if (Object.keys(tenantUpdates).length > 0) {
             try {
-                await db.updateTenant(req.tenant.id, {
-                    owner_whatsapp_number: config.ownerWhatsApp
-                });
+                await db.updateTenant(req.tenant.id, tenantUpdates);
             } catch (dbError) {
                 console.error('❌ Database error updating tenant:', dbError);
                 // Check if it's a column missing error
-                if (dbError.message.includes('column') && dbError.message.includes('owner_whatsapp_number')) {
+                if (dbError.message.includes('column')) {
                     return res.status(500).json({ 
                         error: 'Database schema outdated. Please contact admin to run migrations.',
-                        details: 'owner_whatsapp_number column missing'
+                        details: `Column missing: ${dbError.message}`
                     });
                 }
                 throw dbError;

@@ -283,6 +283,16 @@
                     margin: 10px 0;
                 ">
                 <p style="font-size: 0.85em; color: #666; margin-top: -5px;">⚠️ Format: Country code + number (no spaces or +). Orders will be forwarded here.</p>
+                
+                <input type="text" id="bankRIB" placeholder="Bank RIB / IBAN (for customer payments)" style="
+                    width: 100%;
+                    padding: 12px;
+                    font-size: 0.9em;
+                    border: 2px solid #ddd;
+                    border-radius: 10px;
+                    margin: 10px 0;
+                ">
+                <p style="font-size: 0.85em; color: #666; margin-top: -5px;">🏦 RIB will be shown to customers for bank transfers</p>
             </div>
 
             <div id="fileLibraryArea" class="instructions" style="margin-bottom: 20px;">
@@ -501,6 +511,7 @@
             const businessDataValue = businessData.value.trim();
             const apiKeyValue = apiKey.value.trim();
             const ownerWhatsAppValue = document.getElementById('ownerWhatsApp').value.trim();
+            const bankRIBValue = document.getElementById('bankRIB').value.trim();
             
             if (!businessDataValue) {
                 showAlert('Please enter your business data first', 'error');
@@ -523,7 +534,8 @@
                         config: {
                             businessData: businessDataValue,
                             apiKey: apiKeyValue || null,
-                            ownerWhatsApp: ownerWhatsAppValue
+                            ownerWhatsApp: ownerWhatsAppValue,
+                            bankRIB: bankRIBValue || null
                         }
                     })
                 });
