@@ -458,6 +458,46 @@ class MultiUserBotManager {
     }
 
     /**
+     * Detect language from text and return appropriate payment request message
+     */
+    detectLanguage(text) {
+        const lower = text.toLowerCase();
+        
+        // Check for Arabic/Darija
+        if (/[\u0600-\u06FF]/.test(text) || lower.includes('dh') || lower.includes('dirham')) {
+            return `💳 *تأكيد الطلب*\n\nشكراً! المرجو إرسال إثبات الدفع (screenshot) بعد إتمام التحويل.\n\n📸 أرسل صورة الوصل الآن`;
+        }
+        
+        // Check for French
+        if (lower.includes('produit') || lower.includes('prix') || lower.includes('merci')) {
+            return `💳 *Confirmation de commande*\n\nParfait! Veuillez envoyer la preuve de paiement (screenshot) après avoir effectué le virement.\n\n📸 Envoyez la photo du reçu maintenant`;
+        }
+        
+        // Default English
+        return `💳 *Order Confirmation*\n\nPerfect! Please send payment proof (screenshot) after completing the transfer.\n\n📸 Send receipt photo now`;
+    }
+
+    /**
+     * Get customer info request message in appropriate language
+     */
+    getCustomerInfoMessage(text) {
+        const lower = text.toLowerCase();
+        
+        // Check for Arabic/Darija
+        if (/[\u0600-\u06FF]/.test(text)) {
+            return `✅ *الدفع مستلم!*\n\nالآن، المرجو تقديم:\n\n1️⃣ الاسم الكامل\n2️⃣ عنوان التسليم الكامل\n3️⃣ البريد الإلكتروني (اختياري)\n\nأرسل كل المعلومات في رسالة واحدة`;
+        }
+        
+        // Check for French
+        if (lower.includes('produit') || lower.includes('prix') || lower.includes('merci')) {
+            return `✅ *Paiement reçu!*\n\nMaintenant, veuillez fournir:\n\n1️⃣ Nom complet\n2️⃣ Adresse de livraison complète\n3️⃣ Email (optionnel)\n\nEnvoyez toutes les infos en un seul message`;
+        }
+        
+        // Default English
+        return `✅ *Payment received!*\n\nNow, please provide:\n\n1️⃣ Full name\n2️⃣ Complete delivery address\n3️⃣ Email (optional)\n\nSend all info in one message`;
+    }
+
+    /**
      * Build explicit order confirmation message
      */
     buildOrderConfirmationMessage(productDetails) {
@@ -512,17 +552,20 @@ class MultiUserBotManager {
                 
                 console.log(`💳 [${userId}] Order flow started for ${customerPhone}`);
             } else {
-                // No payment screenshot - ask for info directly
-                await chat.sendMessage('Great! To complete your order, please provide:\n\n1. Your full name\n2. Delivery address\n3. Email (optional)');
+                // No payment screenshot configured - ask customer to send it anyway
+                console.log(`⚠️ [${userId}] No payment file configured, asking customer to send proof`);
+                
+                const paymentMsg = this.detectLanguage(orderDetails);
+                await chat.sendMessage(paymentMsg);
                 
                 this.orderStates.set(`${tenantId}_${customerPhone}`, {
                     orderId: order.id,
-                    state: 'awaiting_info',
+                    state: 'awaiting_payment',
                     orderDetails: orderDetails,
                     collectedInfo: {}
                 });
                 
-                await db.updateOrder(order.id, { order_state: 'awaiting_info' });
+                await db.updateOrder(order.id, { order_state: 'awaiting_payment' });
             }
             
             this.io.to(userId).emit('messageSent', {
@@ -625,8 +668,9 @@ class MultiUserBotManager {
                             payment_proof_cloudinary_id: uploadResult.publicId
                         });
                         
-                        // Send confirmation with payment details from AI analysis
-                        await chat.sendMessage(`✅ Preuve de paiement reçue et vérifiée!\n\n📋 ${paymentAnalysis}\n\n✏️ Maintenant, merci de fournir:\n\n1. Votre nom complet\n2. Adresse de livraison\n3. Email (optionnel)\n\nVous pouvez envoyer toutes les infos en un seul message.`);
+                        // Send confirmation with payment details from AI analysis in appropriate language
+                        const infoMsg = this.getCustomerInfoMessage(orderState.orderDetails || '');
+                        await chat.sendMessage(`✅ ${paymentAnalysis}\n\n${infoMsg}`);
                         
                         orderState.state = 'awaiting_info';
                         orderState.collectedInfo = { paymentAnalysis };
