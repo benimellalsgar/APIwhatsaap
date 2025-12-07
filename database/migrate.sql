@@ -9,6 +9,17 @@ BEGIN
     END IF;
 END $$;
 
+-- Add bank_rib column to tenants table if it doesn't exist
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenants' AND column_name = 'bank_rib'
+    ) THEN
+        ALTER TABLE tenants ADD COLUMN bank_rib VARCHAR(255);
+    END IF;
+END $$;
+
 -- Ensure customer_orders table exists with all columns
 CREATE TABLE IF NOT EXISTS customer_orders (
     id SERIAL PRIMARY KEY,
