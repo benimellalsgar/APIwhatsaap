@@ -331,24 +331,32 @@ class MultiUserBotManager {
                 imageData: imageData // Pass image data for Vision API
             });
 
-            // Check if AI response confirms order (AI says "confirmed", "مؤكد", etc.)
-            const aiConfirmsOrder = this.detectOrderConfirmationInAIResponse(aiResponse);
+            // Check if customer wants to purchase - show EXPLICIT confirmation message
+            const customerShowsInterest = this.detectPurchaseIntent(messageBody, aiResponse);
             
-            // Check if customer wants to purchase (confirmation keywords)
-            const customerConfirms = this.detectPurchaseIntent(messageBody, aiResponse);
-            
-            if (customerConfirms || aiConfirmsOrder) {
-                // Send AI response first
-                await message.reply(aiResponse);
-                console.log(`✅ [${userId}] Replied: ${aiResponse}`);
+            if (customerShowsInterest) {
+                console.log(`🛒 [${userId}] Customer shows purchase interest, sending confirmation message`);
                 
-                // Then start order flow
-                await this.initiateOrderFlow(tenantId, customerPhone, aiResponse, chat, userId);
+                // Send AI product response first
+                await message.reply(aiResponse);
+                
+                // Then send EXPLICIT confirmation message
+                const confirmationMessage = this.buildOrderConfirmationMessage(aiResponse);
+                await chat.sendMessage(confirmationMessage);
+                
+                // Set state to awaiting confirmation
+                this.orderStates.set(`${tenantId}_${customerPhone}`, {
+                    state: 'awaiting_order_confirmation',
+                    productDetails: aiResponse,
+                    timestamp: new Date()
+                });
+                
+                console.log(`⏳ [${userId}] Waiting for explicit order confirmation from customer`);
                 
                 this.io.to(userId).emit('messageSent', {
                     userId,
                     to: senderName,
-                    message: aiResponse,
+                    message: aiResponse + '\n\n' + confirmationMessage,
                     timestamp: new Date().toISOString()
                 });
                 return;
@@ -450,6 +458,32 @@ class MultiUserBotManager {
     }
 
     /**
+     * Build explicit order confirmation message
+     */
+    buildOrderConfirmationMessage(productDetails) {
+        // Extract product name and price from AI response if possible
+        const priceMatch = productDetails.match(/(\d+[\d,]*)\s*(DH|درهم)/i);
+        const price = priceMatch ? priceMatch[1] : '---';
+        
+        return `
+🛒 *CONFIRMER VOTRE COMMANDE?*
+━━━━━━━━━━━━━━━━━━━━
+
+📦 ${productDetails.substring(0, 150)}${productDetails.length > 150 ? '...' : ''}
+
+💰 Prix: ${price} DH
+🚚 Livraison: Selon votre ville
+
+━━━━━━━━━━━━━━━━━━━━
+⚠️ Pour confirmer et commander, répondez:
+
+✅ "CONFIRMER" ou "تأكيد"
+
+❌ Pour annuler, ignorez ce message.
+`;
+    }
+
+    /**
      * Initiate order flow - send payment screenshot
      */
     async initiateOrderFlow(tenantId, customerPhone, orderDetails, chat, userId) {
@@ -509,10 +543,37 @@ class MultiUserBotManager {
      */
     async handleOrderFlow(orderState, message, chat, tenantId, customerPhone, userId) {
         try {
-            const { state, orderId } = orderState;
+            const { state, orderId, productDetails } = orderState;
+            const messageText = (message.body || '').toLowerCase().trim();
             
+            // STATE 1: Awaiting explicit order confirmation
+            if (state === 'awaiting_order_confirmation') {
+                console.log(`🔍 [${userId}] Checking if customer confirms order...`);
+                
+                const confirmKeywords = [
+                    'confirmer', 'confirm', 'confirmo', 'تأكيد', 'أكد',
+                    'oui je confirme', 'yes confirm', 'نعم أؤكد'
+                ];
+                
+                const isConfirmed = confirmKeywords.some(kw => messageText.includes(kw));
+                
+                if (!isConfirmed) {
+                    // Customer said something else - not confirming
+                    console.log(`❌ [${userId}] Customer did not confirm. Message: "${messageText}"`);
+                    await chat.sendMessage('Pour commander, veuillez répondre "CONFIRMER" ou "تأكيد"');
+                    return true; // Handled but no confirmation
+                }
+                
+                console.log(`✅ [${userId}] Customer confirmed order! Starting order flow...`);
+                
+                // Customer confirmed - start actual order flow
+                await this.initiateOrderFlow(tenantId, customerPhone, productDetails, chat, userId);
+                return true;
+            }
+            
+            // STATE 2: Awaiting payment proof
             if (state === 'awaiting_payment') {
-                const messageText = (message.body || '').toLowerCase();
+                console.log(`💳 [${userId}] In awaiting_payment state`);
                 
                 // Check for payment confirmation text (without image)
                 const paymentConfirmWords = [
@@ -525,9 +586,30 @@ class MultiUserBotManager {
                 
                 // Check if customer sent payment proof (image)
                 if (message.hasMedia) {
+                    console.log(`📸 [${userId}] Customer sent media, checking if it's payment proof...`);
                     const media = await message.downloadMedia();
                     
                     if (media && media.mimetype.startsWith('image/')) {
+                        console.log(`🖼️ [${userId}] Image received, analyzing with Vision API...`);
+                        
+                        // Use Vision API to read payment screenshot
+                        const sessionInfo = this.sessions.get(userId);
+                        const aiService = sessionInfo.aiService || this.defaultAIService;
+                        
+                        const paymentAnalysis = await aiService.generateResponse(
+                            'Analyze this payment proof carefully. Extract: 1) Amount paid, 2) Date and time, 3) Transaction reference if visible. Be precise and accurate.',
+                            {
+                                chatId: `${userId}_${customerPhone}_payment`,
+                                imageData: {
+                                    base64: media.data,
+                                    mimetype: media.mimetype,
+                                    filename: 'payment_proof.jpg'
+                                }
+                            }
+                        );
+                        
+                        console.log(`✅ [${userId}] Payment analysis: ${paymentAnalysis}`);
+                        
                         // Upload payment proof to Cloudinary
                         const cloudinaryService = require('./cloudinaryService');
                         const uploadResult = await cloudinaryService.uploadFile(
@@ -543,14 +625,14 @@ class MultiUserBotManager {
                             payment_proof_cloudinary_id: uploadResult.publicId
                         });
                         
-                        // Now ask for customer info
-                        await chat.sendMessage('✅ Preuve de paiement reçue! Maintenant, merci de fournir:\n\n1. Votre nom complet\n2. Adresse de livraison\n3. Email (optionnel)\n\nVous pouvez envoyer toutes les infos en un seul message.');
+                        // Send confirmation with payment details from AI analysis
+                        await chat.sendMessage(`✅ Preuve de paiement reçue et vérifiée!\n\n📋 ${paymentAnalysis}\n\n✏️ Maintenant, merci de fournir:\n\n1. Votre nom complet\n2. Adresse de livraison\n3. Email (optionnel)\n\nVous pouvez envoyer toutes les infos en un seul message.`);
                         
                         orderState.state = 'awaiting_info';
-                        orderState.collectedInfo = {};
+                        orderState.collectedInfo = { paymentAnalysis };
                         await db.updateOrder(orderId, { order_state: 'awaiting_info' });
                         
-                        console.log(`✅ [${userId}] Payment proof received for order ${orderId}`);
+                        console.log(`✅ [${userId}] Payment proof analyzed and saved for order ${orderId}`);
                         return true;
                     }
                 } else if (hasPaymentConfirmation) {
@@ -559,7 +641,7 @@ class MultiUserBotManager {
                     return true;
                 }
                 
-                await chat.sendMessage('Merci d\'envoyer une capture d\'écran ou photo de votre preuve de paiement (reçu de virement).');
+                await chat.sendMessage('💳 Merci d\'envoyer une capture d\'écran ou photo de votre preuve de paiement (reçu de virement bancaire).');
                 return true;
             }
             
@@ -699,14 +781,25 @@ class MultiUserBotManager {
             console.log(`   Target: ${ownerNumber}`);
             console.log(`   Order ID: ${orderId}`);
             
-            // Build order summary message
+            // Get payment analysis from order state (if available)
+            const orderStateData = this.orderStates.get(`${tenantId}_${customerPhone}`) || {};
+            const paymentAnalysis = orderStateData.collectedInfo?.paymentAnalysis;
+            
+            // Build order summary message with payment analysis
             let orderMessage = `🛒 *NOUVELLE COMMANDE REÇUE*\n\n`;
+            orderMessage += `━━━━━━━━━━━━━━━━━━━━\n`;
             orderMessage += `📱 Client: ${customerPhone.replace('@c.us', '')}\n`;
             orderMessage += `👤 Nom: ${order.customer_name || 'Non fourni'}\n`;
             orderMessage += `📧 Email: ${order.customer_email || 'Non fourni'}\n`;
             orderMessage += `📍 Adresse:\n${order.customer_address || 'Non fournie'}\n\n`;
-            orderMessage += `📝 Détails commande:\n${order.order_details || 'Voir conversation'}\n\n`;
-            orderMessage += `📅 Order Date: ${order.created_at}\n`;
+            
+            if (paymentAnalysis) {
+                orderMessage += `💳 *ANALYSE PAIEMENT (AI Vision):*\n${paymentAnalysis}\n\n`;
+            }
+            
+            orderMessage += `📝 *Détails commande:*\n${order.order_details || 'Voir conversation'}\n\n`;
+            orderMessage += `━━━━━━━━━━━━━━━━━━━━\n`;
+            orderMessage += `📅 Date: ${order.created_at}\n`;
             orderMessage += `🆔 Order ID: #${order.id}`;
             
             console.log(`📝 [${userId}] Message content prepared (${orderMessage.length} chars)`);
