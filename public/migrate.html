@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Migration</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 500px;
+            width: 100%;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            font-size: 1em;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.1em;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            background: #25D366;
+            color: white;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: #1fa855;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(37, 211, 102, 0.3);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .alert {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .info-box strong {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Database Migration</h1>
+        <p class="subtitle">Run database migrations to add new columns</p>
+
+        <div class="info-box">
+            <strong>ℹ️ This will:</strong><br>
+            • Add <code>first_used_at</code> column to tenants<br>
+            • Add <code>trial_notified</code> column to tenants<br>
+            • Create indexes for better performance<br>
+            • Backfill existing users with their first connection date
+        </div>
+
+        <form id="migrationForm">
+            <div class="form-group">
+                <label for="adminKey">Admin Key:</label>
+                <input 
+                    type="password" 
+                    id="adminKey" 
+                    placeholder="Enter admin key"
+                    required
+                >
+            </div>
+
+            <button type="submit" id="submitBtn">
+                🚀 Run Migration
+            </button>
+        </form>
+
+        <div id="alertBox" class="alert"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('migrationForm');
+        const alertBox = document.getElementById('alertBox');
+        const submitBtn = document.getElementById('submitBtn');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const adminKey = document.getElementById('adminKey').value;
+
+            if (!adminKey) {
+                showAlert('Please enter admin key', 'error');
+                return;
+            }
+
+            // Disable button
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Running migration...';
+
+            try {
+                const response = await fetch('/api/admin/migrate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ adminKey })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showAlert('✅ ' + data.message, 'success');
+                    submitBtn.textContent = '✓ Migration Completed';
+                } else {
+                    showAlert('❌ Error: ' + data.error, 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '🚀 Run Migration';
+                }
+            } catch (error) {
+                showAlert('❌ Network error: ' + error.message, 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = '🚀 Run Migration';
+            }
+        });
+
+        function showAlert(message, type) {
+            alertBox.textContent = message;
+            alertBox.className = 'alert alert-' + type;
+            alertBox.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
