@@ -152,6 +152,33 @@
             
             <button class="btn-primary" onclick="loadUsers()" style="margin-bottom: 20px;">🔄 Refresh</button>
 
+            <!-- Trial Expiring Users Alert Section -->
+            <div id="trialAlertsSection" style="margin-bottom: 30px;">
+                <h2 style="color: #dc3545; margin-bottom: 15px;">⚠️ Trial Expiring Users (30+ Days)</h2>
+                <div id="trialAlertsSummary" style="padding: 15px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; margin-bottom: 15px;">
+                    <p style="margin: 0; color: #856404;">Loading trial alerts...</p>
+                </div>
+                <table class="users-table" id="trialAlertsTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>Tenant</th>
+                            <th>Owner</th>
+                            <th>Email</th>
+                            <th>First Used</th>
+                            <th>Days Used</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trialAlertsList">
+                    </tbody>
+                </table>
+            </div>
+
+            <hr style="margin: 30px 0; border: none; border-top: 2px solid #eee;">
+
+            <!-- Pending Users Section -->
+            <h2 style="margin-bottom: 15px;">👥 Pending User Approvals</h2>
             <table class="users-table">
                 <thead>
                     <tr>
@@ -173,6 +200,92 @@
 
     <script>
         let adminKey = '';
+
+        async function loadTrialAlerts() {
+            try {
+                const response = await fetch(`/api/admin/trial-alerts?adminKey=${encodeURIComponent(adminKey)}`);
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch trial alerts');
+                }
+
+                const data = await response.json();
+                const summary = document.getElementById('trialAlertsSummary');
+                const table = document.getElementById('trialAlertsTable');
+                const alertsList = document.getElementById('trialAlertsList');
+
+                if (data.users.length === 0) {
+                    summary.innerHTML = '<p style="margin: 0; color: #155724;">✅ No users have reached 30 days yet.</p>';
+                    table.style.display = 'none';
+                } else {
+                    summary.innerHTML = `
+                        <p style="margin: 0; color: #856404; font-weight: 600;">
+                            🚨 ${data.total} users have used the app for 30+ days<br>
+                            📊 ${data.unnotified} new alerts | ${data.notified} already notified
+                        </p>
+                    `;
+                    
+                    table.style.display = 'table';
+                    alertsList.innerHTML = data.users.map(user => {
+                        const isNotified = user.trial_notified;
+                        const statusColor = isNotified ? '#6c757d' : '#dc3545';
+                        const statusText = isNotified ? '✓ Notified' : '🔔 NEW';
+                        const daysUsed = Math.floor(user.days_used);
+                        
+                        return `
+                            <tr style="background: ${isNotified ? '#f8f9fa' : '#fff3cd'};">
+                                <td><strong>${user.name}</strong></td>
+                                <td>${user.owner_name || 'N/A'}</td>
+                                <td>${user.owner_email || user.email}</td>
+                                <td>${new Date(user.first_used_at).toLocaleDateString()}</td>
+                                <td><strong style="color: ${statusColor};">${daysUsed} days</strong></td>
+                                <td><span style="color: ${statusColor}; font-weight: 600;">${statusText}</span></td>
+                                <td>
+                                    ${isNotified ? 
+                                        '<span style="color: #6c757d;">Already contacted</span>' : 
+                                        `<button class="btn-approve" onclick="markAsNotified(${user.id})">✓ Mark as Notified</button>`
+                                    }
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            } catch (error) {
+                console.error('Error loading trial alerts:', error);
+                document.getElementById('trialAlertsSummary').innerHTML = 
+                    '<p style="margin: 0; color: #721c24;">❌ Error loading trial alerts</p>';
+            }
+        }
+
+        async function markAsNotified(tenantId) {
+            if (!confirm('Mark this user as notified? This indicates you have contacted them about their 30-day usage.')) {
+                return;
+            }
+
+            const message = document.getElementById('message');
+
+            try {
+                const response = await fetch(`/api/admin/mark-notified/${tenantId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ adminKey })
+                });
+
+                if (!response.ok) throw new Error('Failed to mark as notified');
+
+                message.innerHTML = '<div class="alert alert-success">✅ User marked as notified!</div>';
+                
+                // Reload alerts
+                setTimeout(() => {
+                    loadTrialAlerts();
+                    message.innerHTML = '';
+                }, 1500);
+            } catch (error) {
+                message.innerHTML = '<div class="alert alert-error">❌ ' + error.message + '</div>';
+            }
+        }
 
         async function loadUsers() {
             const key = document.getElementById('adminKey').value;
@@ -203,6 +316,9 @@
                 // Show content
                 content.style.display = 'block';
                 authMessage.innerHTML = '<div class="alert alert-success">✅ Authenticated</div>';
+
+                // Load trial alerts
+                await loadTrialAlerts();
 
                 const usersList = document.getElementById('usersList');
 

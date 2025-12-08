@@ -145,6 +145,45 @@ class Database {
         await this.query(query, [userId]);
     }
 
+    async setTenantFirstUsed(tenantId) {
+        const query = `
+            UPDATE tenants 
+            SET first_used_at = CURRENT_TIMESTAMP 
+            WHERE id = $1 AND first_used_at IS NULL
+            RETURNING first_used_at
+        `;
+        const result = await this.query(query, [tenantId]);
+        return result.rows[0];
+    }
+
+    async getTrialExpiringTenants() {
+        // Get tenants who have used the app for 30+ days and haven't been notified
+        const query = `
+            SELECT 
+                t.id,
+                t.name,
+                t.email,
+                t.first_used_at,
+                t.trial_notified,
+                EXTRACT(DAY FROM (CURRENT_TIMESTAMP - t.first_used_at)) as days_used,
+                u.full_name as owner_name,
+                u.email as owner_email
+            FROM tenants t
+            LEFT JOIN users u ON u.tenant_id = t.id AND u.role = 'owner'
+            WHERE t.first_used_at IS NOT NULL
+            AND t.is_active = true
+            AND EXTRACT(DAY FROM (CURRENT_TIMESTAMP - t.first_used_at)) >= 30
+            ORDER BY t.first_used_at ASC
+        `;
+        const result = await this.query(query);
+        return result.rows;
+    }
+
+    async markTenantTrialNotified(tenantId) {
+        const query = 'UPDATE tenants SET trial_notified = true WHERE id = $1';
+        await this.query(query, [tenantId]);
+    }
+
     // WhatsApp connection operations
     async createWhatsAppConnection(tenantId, sessionId, businessData = null, apiKey = null) {
         const query = `

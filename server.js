@@ -101,6 +101,61 @@ app.post('/api/admin/migrate', async (req, res) => {
     }
 });
 
+// Get trial expiring users (admin only)
+app.get('/api/admin/trial-alerts', async (req, res) => {
+    try {
+        const { adminKey } = req.query;
+        
+        // Verify admin key
+        if (adminKey !== process.env.ADMIN_KEY) {
+            return res.status(403).json({ error: 'Unauthorized - Invalid admin key' });
+        }
+        
+        console.log('📊 Fetching trial expiring users...');
+        const expiringUsers = await db.getTrialExpiringTenants();
+        
+        // Separate notified and unnotified users
+        const unnotified = expiringUsers.filter(u => !u.trial_notified);
+        const notified = expiringUsers.filter(u => u.trial_notified);
+        
+        res.json({ 
+            total: expiringUsers.length,
+            unnotified: unnotified.length,
+            notified: notified.length,
+            users: expiringUsers,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('❌ Error fetching trial alerts:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark tenant as notified (admin only)
+app.post('/api/admin/mark-notified/:tenantId', async (req, res) => {
+    try {
+        const { adminKey } = req.body;
+        const { tenantId } = req.params;
+        
+        // Verify admin key
+        if (adminKey !== process.env.ADMIN_KEY) {
+            return res.status(403).json({ error: 'Unauthorized - Invalid admin key' });
+        }
+        
+        await db.markTenantTrialNotified(tenantId);
+        console.log(`✅ Tenant ${tenantId} marked as trial notified`);
+        
+        res.json({ 
+            message: 'Tenant marked as notified',
+            tenantId,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('❌ Error marking tenant as notified:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Auth routes
 app.post('/api/auth/register', async (req, res) => {
     try {
@@ -384,6 +439,14 @@ app.post('/api/start', authenticate, async (req, res) => {
                 }
                 throw dbError;
             }
+        }
+        
+        // Track first usage (for 30-day trial tracking)
+        try {
+            await db.setTenantFirstUsed(req.tenant.id);
+            console.log('📅 First usage timestamp recorded for tenant:', req.tenant.id);
+        } catch (firstUsedError) {
+            console.log('⚠️ Could not set first_used_at (may already be set):', firstUsedError.message);
         }
         
         // Generate unique session ID for this tenant

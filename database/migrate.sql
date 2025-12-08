@@ -20,6 +20,28 @@ BEGIN
     END IF;
 END $$;
 
+-- Add first_used_at column for trial tracking
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenants' AND column_name = 'first_used_at'
+    ) THEN
+        ALTER TABLE tenants ADD COLUMN first_used_at TIMESTAMP;
+    END IF;
+END $$;
+
+-- Add trial_notified column for trial tracking
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenants' AND column_name = 'trial_notified'
+    ) THEN
+        ALTER TABLE tenants ADD COLUMN trial_notified BOOLEAN DEFAULT false;
+    END IF;
+END $$;
+
 -- Ensure customer_orders table exists with all columns
 CREATE TABLE IF NOT EXISTS customer_orders (
     id SERIAL PRIMARY KEY,
@@ -39,3 +61,17 @@ CREATE TABLE IF NOT EXISTS customer_orders (
 -- Create indexes if they don't exist
 CREATE INDEX IF NOT EXISTS idx_customer_orders_tenant_id ON customer_orders(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_customer_orders_state ON customer_orders(order_state);
+
+-- Create indexes for trial tracking
+CREATE INDEX IF NOT EXISTS idx_tenants_first_used_at ON tenants(first_used_at);
+CREATE INDEX IF NOT EXISTS idx_tenants_trial_notified ON tenants(trial_notified);
+
+-- Update existing tenants with connections (backfill first_used_at)
+UPDATE tenants t
+SET first_used_at = (
+    SELECT MIN(created_at) 
+    FROM whatsapp_connections wc 
+    WHERE wc.tenant_id = t.id
+)
+WHERE first_used_at IS NULL 
+AND EXISTS (SELECT 1 FROM whatsapp_connections wc WHERE wc.tenant_id = t.id);
