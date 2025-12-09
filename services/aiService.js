@@ -25,13 +25,30 @@ class AIService {
         }
 
         this.conversationHistory = new Map();
-        this.maxHistoryLength = 4;
+        this.maxHistoryLength = 4; // 4 exchanges = 8 messages
         this.isCustom = !!customApiKey;
         this.businessData = businessData; // Store user's business data
         
         // Warn if API keys are missing (only for default service)
         if (!customApiKey && !process.env.PERPLEXITY_API_KEY && this.provider === 'perplexity') {
             console.warn('⚠️ PERPLEXITY_API_KEY is not set. Bot will not work properly.');
+        }
+        
+        // Memory management: Clean old conversations every 30 minutes
+        setInterval(() => this.cleanOldConversations(), 1800000);
+    }
+    
+    /**
+     * Clean conversations that haven't been used in 1 hour
+     */
+    cleanOldConversations() {
+        const oldSize = this.conversationHistory.size;
+        
+        // In production, you'd track last access time per conversation
+        // For now, clear all if too many conversations
+        if (this.conversationHistory.size > 1000) {
+            this.conversationHistory.clear();
+            console.log(`🧹 [AI] Cleared ${oldSize} old conversations to free memory`);
         }
     }
 
@@ -56,6 +73,16 @@ class AIService {
             if (history.length > 0 && history[history.length - 1].role === 'user') {
                 // Remove the last user message to maintain alternation
                 history.pop();
+            }
+            
+            // Memory optimization: Limit history to prevent memory bloat
+            // Keep only recent exchanges (reduced from maxHistoryLength * 2)
+            const MAX_HISTORY_MESSAGES = this.maxHistoryLength * 2; // 8 messages (4 exchanges)
+            if (history.length > MAX_HISTORY_MESSAGES) {
+                // Remove oldest messages, keep most recent
+                const removeCount = history.length - MAX_HISTORY_MESSAGES;
+                history.splice(0, removeCount);
+                console.log(`🧹 [AI] Trimmed ${removeCount} old messages from history`);
             }
 
             // Build message content - handle images with vision

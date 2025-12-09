@@ -11,6 +11,64 @@ class MultiUserBotManager {
         this.defaultAIService = new AIService();
         this.userDataStore = userDataStore;
         this.orderStates = new Map(); // customerPhone -> {orderId, state, data}
+        
+        // Session cleanup configuration
+        this.cleanupConfig = {
+            inactiveTimeout: 3600000, // 1 hour of inactivity
+            checkInterval: 300000, // Check every 5 minutes
+            maxSessionAge: 86400000 // Max 24 hours per session
+        };
+        
+        // Start automatic cleanup
+        this.startSessionCleanup();
+    }
+    
+    /**
+     * Automatic cleanup of inactive sessions to free memory
+     */
+    startSessionCleanup() {
+        setInterval(async () => {
+            await this.cleanupInactiveSessions();
+        }, this.cleanupConfig.checkInterval);
+        
+        console.log(`🧹 Session cleanup started (checking every ${this.cleanupConfig.checkInterval / 1000}s)`);
+    }
+    
+    /**
+     * Clean up inactive sessions
+     */
+    async cleanupInactiveSessions() {
+        const now = Date.now();
+        let cleaned = 0;
+        let total = this.sessions.size;
+        
+        for (const [userId, session] of this.sessions.entries()) {
+            const inactiveTime = now - session.lastActivity;
+            const sessionAge = now - session.createdAt;
+            
+            // Check if session should be cleaned
+            const shouldClean = (
+                !session.isReady || // Not ready after long time
+                inactiveTime > this.cleanupConfig.inactiveTimeout || // Inactive too long
+                sessionAge > this.cleanupConfig.maxSessionAge // Too old
+            );
+            
+            if (shouldClean) {
+                console.log(`🧹 [${userId}] Cleaning inactive session (inactive: ${Math.floor(inactiveTime / 60000)}min, age: ${Math.floor(sessionAge / 3600000)}h)`);
+                
+                try {
+                    await this.stopSession(userId);
+                    cleaned++;
+                } catch (error) {
+                    console.error(`❌ [${userId}] Error cleaning session:`, error.message);
+                }
+            }
+        }
+        
+        if (cleaned > 0) {
+            console.log(`✅ Session cleanup complete: ${cleaned}/${total} sessions removed`);
+            console.log(`📊 Active sessions: ${this.sessions.size}`);
+        }
     }
 
     // Create new session for a user
@@ -77,7 +135,7 @@ class MultiUserBotManager {
             // Extract tenant ID from session ID (format: tenant_123_timestamp)
             const tenantId = userId.match(/tenant_(\d+)_/)?.[1];
 
-            // Store session info
+            // Store session info with activity tracking
             const sessionInfo = {
                 client: client,
                 isReady: false,
@@ -85,7 +143,10 @@ class MultiUserBotManager {
                 qrCode: null,
                 config: userConfig,
                 aiService: aiService,
-                tenantId: tenantId ? parseInt(tenantId) : null
+                tenantId: tenantId ? parseInt(tenantId) : null,
+                lastActivity: Date.now(), // Track last activity
+                createdAt: Date.now(),
+                messageCount: 0 // Track message count
             };
 
             this.sessions.set(userId, sessionInfo);
@@ -177,6 +238,8 @@ class MultiUserBotManager {
 
         // Messages
         client.on('message', async (message) => {
+            const systemMetrics = require('./systemMetrics');
+            systemMetrics.recordMessage();
             await this.handleMessage(userId, message);
         });
 
@@ -222,9 +285,34 @@ class MultiUserBotManager {
             const customerPhone = message.from;
 
             console.log(`\n📩 [${userId}] From ${senderName}: ${messageBody}`);
-
+            
             // Get session info
             const sessionInfo = this.sessions.get(userId);
+            
+            if (!sessionInfo) {
+                console.error(`❌ [${userId}] Session not found`);
+                return;
+            }
+            
+            // Update activity tracking
+            sessionInfo.lastActivity = Date.now();
+            sessionInfo.messageCount++;
+            
+            // Update system metrics
+            const systemMetrics = require('./systemMetrics');
+            systemMetrics.updateActiveSessions(this.sessions.size);
+            
+            // Rate limiting check
+            const rateLimiter = require('../middleware/rateLimiter');
+            const limitCheck = rateLimiter.checkLimit(userId);
+            
+            if (!limitCheck.allowed) {
+                systemMetrics.recordRateLimitHit();
+                console.warn(`⚠️ [${userId}] Rate limit exceeded: ${limitCheck.reason}`);
+                await chat.sendMessage(`⚠️ ${limitCheck.reason}\n\nPlease try again in ${limitCheck.retryAfter} seconds.`);
+                return;
+            }
+
             const aiService = sessionInfo.aiService || this.defaultAIService;
             const tenantId = sessionInfo.tenantId;
             

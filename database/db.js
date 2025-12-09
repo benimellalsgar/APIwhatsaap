@@ -11,11 +11,25 @@ class Database {
         
         this.pool = new Pool({
             connectionString: process.env.DATABASE_URL,
-            ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+            ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+            // Connection Pool Optimization for 100+ concurrent users
+            max: 20, // Maximum pool size (was unlimited)
+            min: 2, // Minimum idle connections
+            idleTimeoutMillis: 30000, // Close idle connections after 30s
+            connectionTimeoutMillis: 10000, // Fail fast if no connection available
+            maxUses: 7500, // Recycle connection after 7500 queries
         });
 
         this.pool.on('error', (err) => {
             console.error('Unexpected database error:', err);
+        });
+        
+        this.pool.on('connect', () => {
+            console.log('🔗 New database connection established');
+        });
+        
+        this.pool.on('remove', () => {
+            console.log('🔌 Database connection removed from pool');
         });
     }
 

@@ -11,6 +11,7 @@ const db = require('./database/db');
 const fileStorageService = require('./services/fileStorageService');
 const cloudinaryService = require('./services/cloudinaryService');
 const AIService = require('./services/aiService');
+const systemMetrics = require('./services/systemMetrics');
 require('dotenv').config();
 
 const app = express();
@@ -44,6 +45,12 @@ const botManager = new MultiUserBotManager(io, userDataStore);
 // Health check endpoint (must respond quickly for Railway)
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok' });
+});
+
+// Metrics endpoint (for monitoring)
+app.get('/api/metrics', (req, res) => {
+    const metrics = systemMetrics.getAllMetrics();
+    res.json(metrics);
 });
 
 // Migration endpoint (run once after deployment)
