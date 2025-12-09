@@ -227,14 +227,22 @@ class MultiUserBotManager {
             const sessionInfo = this.sessions.get(userId);
             const aiService = sessionInfo.aiService || this.defaultAIService;
             const tenantId = sessionInfo.tenantId;
-
-            // Check if customer has an active order in progress
-            const orderState = this.orderStates.get(`${tenantId}_${customerPhone}`);
             
-            if (orderState) {
-                // Customer is in order flow - handle state machine
-                const result = await this.handleOrderFlow(orderState, message, chat, tenantId, customerPhone, userId);
-                if (result) return; // Order flow handled, exit
+            // Get tenant bot mode (default: conversational)
+            const tenant = await db.getTenantById(tenantId);
+            const botMode = tenant?.bot_mode || 'conversational';
+            
+            console.log(`🤖 [${userId}] Bot mode: ${botMode}`);
+
+            // Check if customer has an active order in progress (only for ecommerce mode)
+            if (botMode === 'ecommerce') {
+                const orderState = this.orderStates.get(`${tenantId}_${customerPhone}`);
+                
+                if (orderState) {
+                    // Customer is in order flow - handle state machine
+                    const result = await this.handleOrderFlow(orderState, message, chat, tenantId, customerPhone, userId);
+                    if (result) return; // Order flow handled, exit
+                }
             }
 
             // Check if message has media
@@ -323,43 +331,48 @@ class MultiUserBotManager {
                 }
             }
 
-            // Get AI response with file/image info if available
+            // Get AI response with file/image info if available (mode-specific context)
+            const modeContext = this.getModeSpecificContext(botMode, tenant);
             const aiResponse = await aiService.generateResponse(messageBody || '', {
                 senderName: senderName,
                 chatId: `${userId}_${message.from}`,
                 fileInfo: fileInfo,
-                imageData: imageData // Pass image data for Vision API
+                imageData: imageData, // Pass image data for Vision API
+                botMode: botMode,
+                modeContext: modeContext
             });
 
-            // Check if customer wants to purchase - show EXPLICIT confirmation message
-            const customerShowsInterest = this.detectPurchaseIntent(messageBody, aiResponse);
-            
-            if (customerShowsInterest) {
-                console.log(`🛒 [${userId}] Customer shows purchase interest, sending confirmation message`);
+            // Check if customer wants to purchase - ONLY for ecommerce mode
+            if (botMode === 'ecommerce') {
+                const customerShowsInterest = this.detectPurchaseIntent(messageBody, aiResponse);
                 
-                // Send AI product response first
-                await message.reply(aiResponse);
-                
-                // Then send EXPLICIT confirmation message
-                const confirmationMessage = this.buildOrderConfirmationMessage(aiResponse);
-                await chat.sendMessage(confirmationMessage);
-                
-                // Set state to awaiting confirmation
-                this.orderStates.set(`${tenantId}_${customerPhone}`, {
-                    state: 'awaiting_order_confirmation',
-                    productDetails: aiResponse,
-                    timestamp: new Date()
-                });
-                
-                console.log(`⏳ [${userId}] Waiting for explicit order confirmation from customer`);
-                
-                this.io.to(userId).emit('messageSent', {
-                    userId,
-                    to: senderName,
-                    message: aiResponse + '\n\n' + confirmationMessage,
-                    timestamp: new Date().toISOString()
-                });
-                return;
+                if (customerShowsInterest) {
+                    console.log(`🛒 [${userId}] Customer shows purchase interest, sending confirmation message`);
+                    
+                    // Send AI product response first
+                    await message.reply(aiResponse);
+                    
+                    // Then send EXPLICIT confirmation message
+                    const confirmationMessage = this.buildOrderConfirmationMessage(aiResponse);
+                    await chat.sendMessage(confirmationMessage);
+                    
+                    // Set state to awaiting confirmation
+                    this.orderStates.set(`${tenantId}_${customerPhone}`, {
+                        state: 'awaiting_order_confirmation',
+                        productDetails: aiResponse,
+                        timestamp: new Date()
+                    });
+                    
+                    console.log(`⏳ [${userId}] Waiting for explicit order confirmation from customer`);
+                    
+                    this.io.to(userId).emit('messageSent', {
+                        userId,
+                        to: senderName,
+                        message: aiResponse + '\n\n' + confirmationMessage,
+                        timestamp: new Date().toISOString()
+                    });
+                    return;
+                }
             }
 
             // Send normal AI response
@@ -493,6 +506,23 @@ class MultiUserBotManager {
 
 ❌ Pour annuler, ignorez ce message.
 `;
+    }
+
+    /**
+     * Get mode-specific context for AI
+     */
+    getModeSpecificContext(botMode, tenant) {
+        const contexts = {
+            conversational: `You are a helpful AI assistant for ${tenant?.name || 'this business'}. Answer questions naturally without offering to sell products or take orders. Focus on providing information, answering questions, and having helpful conversations.`,
+            
+            ecommerce: `You are a sales assistant for ${tenant?.name || 'this e-commerce business'}. Help customers discover products, answer questions about pricing and availability, and guide them through the purchase process.`,
+            
+            appointment: `You are an appointment booking assistant for ${tenant?.name || 'this service'}. Help customers check availability, book appointments, and answer questions about services. Be professional and efficient.`,
+            
+            delivery: `You are a delivery tracking assistant for ${tenant?.name || 'this delivery service'}. Help customers track their packages, provide delivery updates, and answer shipping questions. Be clear and reassuring.`
+        };
+        
+        return contexts[botMode] || contexts.conversational;
     }
 
     /**

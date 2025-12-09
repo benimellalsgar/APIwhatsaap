@@ -274,25 +274,53 @@
                     margin: 10px 0;
                 ">
                 
-                <input type="text" id="ownerWhatsApp" placeholder="Owner WhatsApp Number (e.g., 212600000000)" style="
-                    width: 100%;
-                    padding: 12px;
-                    font-size: 0.9em;
-                    border: 2px solid #ddd;
-                    border-radius: 10px;
-                    margin: 10px 0;
-                ">
-                <p style="font-size: 0.85em; color: #666; margin-top: -5px;">⚠️ Format: Country code + number (no spaces or +). Orders will be forwarded here.</p>
-                
-                <input type="text" id="bankRIB" placeholder="Bank RIB / IBAN (for customer payments)" style="
-                    width: 100%;
-                    padding: 12px;
-                    font-size: 0.9em;
-                    border: 2px solid #ddd;
-                    border-radius: 10px;
-                    margin: 10px 0;
-                ">
-                <p style="font-size: 0.85em; color: #666; margin-top: -5px;">🏦 RIB will be shown to customers for bank transfers</p>
+                <div style="margin: 15px 0; padding: 15px; background: #f0f8ff; border-radius: 10px; border: 2px solid #4a90e2;">
+                    <label style="display: block; margin-bottom: 10px; font-weight: 600; color: #333;">
+                        🤖 Bot Mode (Choose Your Use Case):
+                    </label>
+                    <select id="botMode" style="
+                        width: 100%;
+                        padding: 12px;
+                        font-size: 0.9em;
+                        border: 2px solid #ddd;
+                        border-radius: 8px;
+                        background: white;
+                        cursor: pointer;
+                    ">
+                        <option value="conversational">💬 Conversational - Simple Q&A (No Orders)</option>
+                        <option value="ecommerce">📦 E-Commerce - Products + Payments</option>
+                        <option value="appointment">📅 Appointment - Bookings (Doctor, Salon)</option>
+                        <option value="delivery">🚚 Delivery - Package Tracking</option>
+                    </select>
+                    <p style="font-size: 0.85em; color: #555; margin: 10px 0 0 0;">
+                        <strong>Conversational:</strong> For doctors, consultants, support (no payments needed)<br>
+                        <strong>E-Commerce:</strong> For shops selling products with payment confirmation<br>
+                        <strong>Appointment:</strong> For booking services with date/time<br>
+                        <strong>Delivery:</strong> For delivery tracking and status updates
+                    </p>
+                </div>
+
+                <div id="ecommerceFields" style="display: none;">
+                    <input type="text" id="ownerWhatsApp" placeholder="Owner WhatsApp Number (e.g., 212600000000)" style="
+                        width: 100%;
+                        padding: 12px;
+                        font-size: 0.9em;
+                        border: 2px solid #ddd;
+                        border-radius: 10px;
+                        margin: 10px 0;
+                    ">
+                    <p style="font-size: 0.85em; color: #666; margin-top: -5px;">⚠️ Format: Country code + number (no spaces or +). Orders will be forwarded here.</p>
+                    
+                    <input type="text" id="bankRIB" placeholder="Bank RIB / IBAN (for customer payments)" style="
+                        width: 100%;
+                        padding: 12px;
+                        font-size: 0.9em;
+                        border: 2px solid #ddd;
+                        border-radius: 10px;
+                        margin: 10px 0;
+                    ">
+                    <p style="font-size: 0.85em; color: #666; margin-top: -5px;">🏦 RIB will be shown to customers for bank transfers</p>
+                </div>
             </div>
 
             <div id="fileLibraryArea" class="instructions" style="margin-bottom: 20px;">
@@ -506,20 +534,35 @@
             showAlert('Error: ' + data.message, 'error');
         });
 
+        // Mode selector logic
+        const botModeSelect = document.getElementById('botMode');
+        const ecommerceFields = document.getElementById('ecommerceFields');
+        
+        botModeSelect.addEventListener('change', () => {
+            const mode = botModeSelect.value;
+            if (mode === 'ecommerce') {
+                ecommerceFields.style.display = 'block';
+            } else {
+                ecommerceFields.style.display = 'none';
+            }
+        });
+
         // Button handlers
         startBtn.addEventListener('click', async () => {
             const businessDataValue = businessData.value.trim();
             const apiKeyValue = apiKey.value.trim();
-            const ownerWhatsAppValue = document.getElementById('ownerWhatsApp').value.trim();
-            const bankRIBValue = document.getElementById('bankRIB').value.trim();
+            const botModeValue = botModeSelect.value;
+            const ownerWhatsAppValue = document.getElementById('ownerWhatsApp')?.value.trim() || '';
+            const bankRIBValue = document.getElementById('bankRIB')?.value.trim() || '';
             
             if (!businessDataValue) {
                 showAlert('Please enter your business data first', 'error');
                 return;
             }
             
-            if (!ownerWhatsAppValue) {
-                showAlert('Please enter owner WhatsApp number to receive orders', 'error');
+            // Only require owner WhatsApp for ecommerce mode
+            if (botModeValue === 'ecommerce' && !ownerWhatsAppValue) {
+                showAlert('Please enter owner WhatsApp number for e-commerce mode', 'error');
                 return;
             }
             
@@ -534,7 +577,8 @@
                         config: {
                             businessData: businessDataValue,
                             apiKey: apiKeyValue || null,
-                            ownerWhatsApp: ownerWhatsAppValue,
+                            botMode: botModeValue,
+                            ownerWhatsApp: ownerWhatsAppValue || null,
                             bankRIB: bankRIBValue || null
                         }
                     })

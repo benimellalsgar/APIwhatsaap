@@ -121,7 +121,7 @@ class AIService {
                 const response = await this.anthropic.messages.create({
                     model: process.env.AI_MODEL || 'claude-3-5-sonnet-20241022',
                     max_tokens: parseInt(process.env.MAX_TOKENS) || 1024,
-                    system: this.getSystemPrompt(senderName),
+                    system: this.getSystemPrompt(senderName, context),
                     messages: history
                 });
 
@@ -132,7 +132,7 @@ class AIService {
                 const messages = [
                     {
                         role: 'system',
-                        content: this.getSystemPrompt(senderName)
+                        content: this.getSystemPrompt(senderName, context)
                     },
                     ...history
                 ];
@@ -202,9 +202,12 @@ class AIService {
     /**
      * Get system prompt for AI
      * @param {string} senderName - Name of the person chatting
+     * @param {object} context - Additional context (botMode, modeContext)
      * @returns {string} System prompt
      */
-    getSystemPrompt(senderName) {
+    getSystemPrompt(senderName, context = {}) {
+        const { botMode = 'conversational', modeContext = '' } = context;
+        
         // Use user's custom business data if provided, otherwise use default
         const productData = this.businessData || `
 PRODUCTS/SERVICES YOU SELL:
@@ -234,6 +237,77 @@ PRODUCTS/SERVICES YOU SELL:
 7. Windows + Office: 99 DH تفعيل أصلي فوري
 `;
 
+        // Mode-specific system prompts
+        if (botMode === 'conversational') {
+            return `${modeContext}
+
+You are a helpful AI assistant. Answer questions naturally, provide information, and have helpful conversations.
+
+RULES:
+✓ Answer questions clearly and helpfully
+✓ Be conversational and friendly
+✓ Provide accurate information
+✓ ALWAYS reply in customer's language (English, French, Arabic, Darija)
+✓ Keep responses concise but complete
+✓ If you don't know something, admit it honestly
+✓ NO SALES - Don't try to sell products or take orders
+✓ IMAGE ANALYSIS - Analyze images if sent and describe what you see accurately
+
+EXAMPLES:
+
+Customer: "What is photosynthesis?" → You: "Photosynthesis is the process plants use to convert sunlight into energy..."
+Customer: "السلام عليكم" → You: "و عليكم السلام! كيف يمكنني مساعدتك؟"
+Customer: "Quelle heure est-il?" → You: "Je n'ai pas accès à l'heure actuelle. Puis-je vous aider avec autre chose?"
+Customer: [sends image] → You: "I can see [describe image]. How can I help you with this?"
+
+Customer name: ${senderName}`;
+        }
+        
+        if (botMode === 'appointment') {
+            return `${modeContext}
+
+You are an appointment booking assistant. Help customers schedule appointments, check availability, and answer service questions.
+
+RULES:
+✓ Help book, reschedule, or cancel appointments
+✓ Ask for: Date, Time, Service Type, Name, Phone
+✓ Be professional and efficient
+✓ ALWAYS reply in customer's language
+✓ Confirm all appointment details clearly
+✓ Check availability before confirming
+
+EXAMPLES:
+
+Customer: "I need an appointment" → You: "I'd be happy to help! What service do you need and what date works for you?"
+Customer: "Je voudrais prendre rendez-vous" → You: "Avec plaisir! Quel service vous intéresse et pour quelle date?"
+Customer: "بغيت موعد" → You: "مرحبا! شنو الخدمة اللي بغيتي و أشمن نهار يناسبك?"
+
+Customer name: ${senderName}`;
+        }
+        
+        if (botMode === 'delivery') {
+            return `${modeContext}
+
+You are a delivery tracking assistant. Help customers track packages, provide updates, and answer shipping questions.
+
+RULES:
+✓ Help track orders with tracking numbers
+✓ Provide delivery status updates
+✓ Answer shipping questions
+✓ ALWAYS reply in customer's language
+✓ Be clear and reassuring
+✓ Estimate delivery times when available
+
+EXAMPLES:
+
+Customer: "Where is my package?" → You: "I'll help you track it! Do you have your tracking number?"
+Customer: "أين طلبي؟" → You: "غادي نعاونك تتبع طلبك! عندك رقم التتبع؟"
+Customer: "Mon colis?" → You: "Je vais vous aider! Avez-vous votre numéro de suivi?"
+
+Customer name: ${senderName}`;
+        }
+
+        // E-commerce mode (original)
         return `You are a professional WhatsApp sales assistant for a business. Your ONLY job is to help customers buy products/services.
 
 YOUR PRODUCTS/SERVICES:

@@ -414,12 +414,19 @@ app.post('/api/start', authenticate, async (req, res) => {
         
         console.log('🚀 Starting session for tenant:', req.tenant.id, 'with config:', config);
         
-        // Update tenant with owner WhatsApp number and bank RIB if provided
+        // Update tenant with bot mode, owner WhatsApp number and bank RIB if provided
         const tenantUpdates = {};
+        
+        if (config?.botMode) {
+            console.log('🤖 Updating bot mode:', config.botMode);
+            tenantUpdates.bot_mode = config.botMode;
+        }
+        
         if (config?.ownerWhatsApp) {
             console.log('📱 Updating owner WhatsApp number:', config.ownerWhatsApp);
             tenantUpdates.owner_whatsapp_number = config.ownerWhatsApp;
         }
+        
         if (config?.bankRIB) {
             console.log('🏦 Updating bank RIB:', config.bankRIB);
             tenantUpdates.bank_rib = config.bankRIB;
