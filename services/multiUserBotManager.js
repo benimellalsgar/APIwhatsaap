@@ -12,14 +12,14 @@ class MultiUserBotManager {
         this.userDataStore = userDataStore;
         this.orderStates = new Map(); // customerPhone -> {orderId, state, data}
         
-        // Session cleanup configuration
+        // Session cleanup configuration - EXTENDED for 24/7 operation
         this.cleanupConfig = {
-            inactiveTimeout: 3600000, // 1 hour of inactivity
-            checkInterval: 300000, // Check every 5 minutes
-            maxSessionAge: 86400000 // Max 24 hours per session
+            inactiveTimeout: 86400000, // 24 hours of inactivity (was 1 hour)
+            checkInterval: 3600000, // Check every 1 hour (was 5 minutes)
+            maxSessionAge: 604800000 // Max 7 days per session (was 24 hours)
         };
         
-        // Start automatic cleanup
+        // Start automatic cleanup (with longer intervals for 24/7 operation)
         this.startSessionCleanup();
     }
     
@@ -614,7 +614,7 @@ class MultiUserBotManager {
     }
 
     /**
-     * Initiate order flow - send payment screenshot
+     * Initiate order flow - send payment screenshot or skip to delivery info if COD
      */
     async initiateOrderFlow(tenantId, customerPhone, orderDetails, chat, userId) {
         try {
@@ -625,10 +625,38 @@ class MultiUserBotManager {
             const amountMatch = orderDetails.match(/(\d+[\d,]*)\s*(DH|درهم)/i);
             const expectedAmount = amountMatch ? parseInt(amountMatch[1].replace(/,/g, '')) : null;
             
-            // Get tenant info for RIB
+            // Get tenant info for RIB and COD setting
             const tenant = await db.getTenantById(tenantId);
             const bankRIB = tenant?.bank_rib;
+            const acceptCOD = tenant?.accept_cod || false;
             
+            // CHECK: If COD is enabled, skip payment and go directly to delivery info
+            if (acceptCOD) {
+                console.log(`💵 [${userId}] COD enabled - Skipping payment, collecting delivery info`);
+                
+                // Send COD confirmation message
+                const codMsg = this.getCODMessage(orderDetails);
+                await chat.sendMessage(codMsg);
+                
+                // Set state to awaiting delivery info (skip payment)
+                this.orderStates.set(`${tenantId}_${customerPhone}`, {
+                    orderId: order.id,
+                    state: 'awaiting_delivery_info',
+                    orderDetails: orderDetails,
+                    paymentMethod: 'COD',
+                    collectedInfo: {}
+                });
+                
+                await db.updateOrder(order.id, { 
+                    order_state: 'awaiting_delivery_info',
+                    payment_method: 'COD'
+                });
+                
+                console.log(`💵 [${userId}] COD order created - Awaiting delivery info`);
+                return;
+            }
+            
+            // Normal flow: Request payment
             // Get payment screenshot from file library
             const paymentFile = await db.getTenantFileByLabel(tenantId, 'payment');
             
@@ -1005,6 +1033,7 @@ class MultiUserBotManager {
             // Get payment analysis from order state (if available)
             const orderStateData = this.orderStates.get(`${tenantId}_${customerPhone}`) || {};
             const paymentAnalysis = orderStateData.collectedInfo?.paymentAnalysis;
+            const paymentMethod = orderStateData.paymentMethod || 'BANK_TRANSFER';
             
             // Build order summary message with payment analysis
             let orderMessage = `🛒 *NOUVELLE COMMANDE REÇUE*\n\n`;
@@ -1014,7 +1043,10 @@ class MultiUserBotManager {
             orderMessage += `📧 Email: ${order.customer_email || 'Non fourni'}\n`;
             orderMessage += `📍 Adresse:\n${order.customer_address || 'Non fournie'}\n\n`;
             
-            if (paymentAnalysis) {
+            // Show payment method
+            if (paymentMethod === 'COD') {
+                orderMessage += `💵 *PAIEMENT: À LA LIVRAISON (COD)*\n\n`;
+            } else if (paymentAnalysis) {
                 orderMessage += `💳 *ANALYSE PAIEMENT (AI Vision):*\n${paymentAnalysis}\n\n`;
             }
             
@@ -1035,8 +1067,8 @@ class MultiUserBotManager {
                 throw new Error(`Failed to send order to owner: ${sendError.message}`);
             }
             
-            // Send payment proof if available
-            if (order.payment_proof_url) {
+            // Send payment proof if available (only for non-COD orders)
+            if (paymentMethod !== 'COD' && order.payment_proof_url) {
                 console.log(`📸 [${userId}] Step 6: Sending payment proof image...`);
                 console.log(`   Image URL: ${order.payment_proof_url}`);
                 const media = await MessageMedia.fromUrl(order.payment_proof_url);

@@ -320,6 +320,23 @@
                         margin: 10px 0;
                     ">
                     <p style="font-size: 0.85em; color: #666; margin-top: -5px;">🏦 RIB will be shown to customers for bank transfers</p>
+                    
+                    <div style="background: #fff3cd; padding: 15px; border-radius: 10px; border: 2px solid #ffc107; margin: 15px 0;">
+                        <label style="display: flex; align-items: center; cursor: pointer; font-weight: 600; color: #333;">
+                            <input type="checkbox" id="acceptCOD" style="
+                                width: 20px;
+                                height: 20px;
+                                margin-right: 10px;
+                                cursor: pointer;
+                            ">
+                            <span>💵 Accept Cash On Delivery (COD)</span>
+                        </label>
+                        <p style="font-size: 0.85em; color: #856404; margin: 8px 0 0 30px;">
+                            ✅ Enable this to let customers confirm orders without payment proof<br>
+                            💰 Payment collected upon delivery<br>
+                            🚫 Customers skip payment screenshot step
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -554,6 +571,7 @@
             const botModeValue = botModeSelect.value;
             const ownerWhatsAppValue = document.getElementById('ownerWhatsApp')?.value.trim() || '';
             const bankRIBValue = document.getElementById('bankRIB')?.value.trim() || '';
+            const acceptCODValue = document.getElementById('acceptCOD')?.checked || false;
             
             if (!businessDataValue) {
                 showAlert('Please enter your business data first', 'error');
@@ -579,7 +597,8 @@
                             apiKey: apiKeyValue || null,
                             botMode: botModeValue,
                             ownerWhatsApp: ownerWhatsAppValue || null,
-                            bankRIB: bankRIBValue || null
+                            bankRIB: bankRIBValue || null,
+                            acceptCOD: acceptCODValue
                         }
                     })
                 });

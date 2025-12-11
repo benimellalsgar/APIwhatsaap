@@ -12,6 +12,7 @@ const fileStorageService = require('./services/fileStorageService');
 const cloudinaryService = require('./services/cloudinaryService');
 const AIService = require('./services/aiService');
 const systemMetrics = require('./services/systemMetrics');
+const keepAlive = require('./services/keepAlive');
 require('dotenv').config();
 
 const app = express();
@@ -25,6 +26,13 @@ db.initialize().catch(err => {
     console.error('Failed to initialize database:', err);
     process.exit(1);
 });
+
+// Start keep-alive service for 24/7 operation
+if (process.env.KEEP_ALIVE_ENABLED !== 'false') {
+    setTimeout(() => {
+        keepAlive.start();
+    }, 5000); // Start after 5 seconds to let server initialize
+}
 
 // Middleware
 app.use(express.json());
@@ -51,6 +59,12 @@ app.get('/health', (req, res) => {
 app.get('/api/metrics', (req, res) => {
     const metrics = systemMetrics.getAllMetrics();
     res.json(metrics);
+});
+
+// Keep-alive stats endpoint
+app.get('/api/keepalive', (req, res) => {
+    const stats = keepAlive.getStats();
+    res.json(stats);
 });
 
 // Migration endpoint (run once after deployment)
@@ -437,6 +451,11 @@ app.post('/api/start', authenticate, async (req, res) => {
         if (config?.bankRIB) {
             console.log('🏦 Updating bank RIB:', config.bankRIB);
             tenantUpdates.bank_rib = config.bankRIB;
+        }
+        
+        if (config?.acceptCOD !== undefined) {
+            console.log('💵 Updating COD setting:', config.acceptCOD);
+            tenantUpdates.accept_cod = config.acceptCOD;
         }
         
         if (Object.keys(tenantUpdates).length > 0) {
