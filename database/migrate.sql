@@ -105,3 +105,30 @@ CREATE INDEX IF NOT EXISTS idx_tenants_bot_mode ON tenants(bot_mode);
 UPDATE tenants 
 SET bot_mode = 'ecommerce'
 WHERE owner_whatsapp_number IS NOT NULL AND bot_mode = 'conversational';
+
+-- Add accept_cod column for Cash on Delivery support
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'tenants' AND column_name = 'accept_cod'
+    ) THEN
+        ALTER TABLE tenants ADD COLUMN accept_cod BOOLEAN DEFAULT false;
+    END IF;
+END $$;
+
+-- Add payment_method column to customer_orders
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'customer_orders' AND column_name = 'payment_method'
+    ) THEN
+        ALTER TABLE customer_orders ADD COLUMN payment_method VARCHAR(20) DEFAULT 'BANK_TRANSFER';
+    END IF;
+END $$;
+
+-- Update existing orders to have payment_method = 'BANK_TRANSFER' if NULL
+UPDATE customer_orders 
+SET payment_method = 'BANK_TRANSFER' 
+WHERE payment_method IS NULL;
